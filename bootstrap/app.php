@@ -19,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'verified' => \App\Http\Middleware\EnsureEmailIsVerified::class,
             'admin.auth' => \App\Http\Middleware\AdminAuthMiddleware::class,
+            'api.auth' => \App\Http\Middleware\ApiAuthMiddleware::class,
             'rate.limit' => \App\Http\Middleware\RateLimitRequests::class,
             'production.security' => \App\Http\Middleware\ProductionSecurityMiddleware::class,
         ]);

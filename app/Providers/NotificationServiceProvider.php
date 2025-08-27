@@ -10,7 +10,7 @@ use App\Services\AlertService;
 use App\Services\ClientWebhookService;
 use App\Services\ProviderHealthService;
 use App\Services\ProviderFailoverService;
-use App\Services\RateLimitService;
+// Duplicate import removed
 use App\Services\WebhookProcessorService;
 use App\Services\ProductionMonitoringService;
 
@@ -117,42 +117,5 @@ class NotificationServiceProvider extends ServiceProvider
             WebhookProcessorService::class,
             ProductionMonitoringService::class,
         ];
-    }
-}
-use App\Services\NotificationService;
-use App\Services\RateLimitService;
-use App\Services\ProductionMonitoringService;
-use App\Services\AlertService;
-
-class NotificationServiceProvider extends ServiceProvider
-{
-    /**
-     * Register any application services.
-     */
-    public function register(): void
-    {
-        $this->app->singleton(NotificationService::class, function ($app) {
-            return new NotificationService();
-        });
-
-        $this->app->singleton(RateLimitService::class, function ($app) {
-            return new RateLimitService();
-        });
-
-        $this->app->singleton(ProductionMonitoringService::class, function ($app) {
-            return new ProductionMonitoringService();
-        });
-
-        $this->app->singleton(AlertService::class, function ($app) {
-            return new AlertService();
-        });
-    }
-
-    /**
-     * Bootstrap any application services.
-     */
-    public function boot(): void
-    {
-        //
     }
 }

@@ -32,7 +32,7 @@ Route::prefix('admin')->group(function () {
     Route::post('/logout', [AdminAuthController::class, 'logout'])->name('admin.logout');
     
     // Admin dashboard routes (protected)
-    Route::middleware(['auth'])->group(function () {
+    Route::middleware(['admin.auth'])->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index'])->name('admin.dashboard');
         Route::get('/users', [DashboardController::class, 'users'])->name('admin.users');
         Route::get('/analytics', [DashboardController::class, 'analytics'])->name('admin.analytics');
