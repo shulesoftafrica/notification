@@ -93,6 +93,11 @@ Route::middleware(['admin.auth'])->prefix('analytics')->group(function () {
 });
 
 // User info route (for authenticated users)
-Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
-    return $request->user();
+Route::middleware('api.auth')->get('/user', function (Request $request) {
+    // Return user info from the authenticated project
+    return response()->json([
+        'project_id' => $request->attributes->get('project_id'),
+        'project_key' => $request->attributes->get('project_key'),
+        'authenticated' => true
+    ]);
 });
