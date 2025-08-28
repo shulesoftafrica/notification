@@ -11,7 +11,7 @@ class Message extends Model
     use HasFactory;
 
     protected $fillable = [
-        'type',
+        'channel',
         'recipient',
         'subject',
         'message',
@@ -48,11 +48,16 @@ class Message extends Model
         'failed_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'webhook_failed_at' => 'datetime',
+        'next_retry_at' => 'datetime',
+        'deleted_at' => 'datetime',
         'metadata' => 'array',
         'tags' => 'array',
+        'variables' => 'array',
+        'options' => 'array',
         'webhook_delivered' => 'boolean',
         'cost_amount' => 'decimal:4',
-        'webhook_response' => 'array',
+        'cost' => 'decimal:4',
+        // Note: recipient should NOT be cast as array/json since we store simple strings
     ];
 
     /**

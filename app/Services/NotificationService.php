@@ -31,7 +31,7 @@ class NotificationService
     public function send($data)
     {
         $messageId = Str::uuid();
-        
+      
         try {
             // Validate and prepare data
             $preparedData = $this->prepareNotificationData($data);
@@ -55,7 +55,7 @@ class NotificationService
             
             return [
                 'message_id' => $messageId,
-                'status' => $result['status'],
+                'status' => $result['success'] ? 'sent' : 'failed',
                 'provider' => $provider,
                 'estimated_delivery' => $result['estimated_delivery'] ?? null,
             ];
@@ -135,19 +135,35 @@ class NotificationService
      */
     protected function updateNotificationLog($logId, $result, $provider)
     {
+        // Handle both array and ProviderResponse formats
+        if (is_array($result)) {
+            $status = $result['status'] ?? 'failed';
+            $messageId = $result['provider_message_id'] ?? null;
+            $error = $result['error'] ?? null;
+            $providerResponse = $result['provider_response'] ?? [];
+        } else {
+            // Convert ProviderResponse success to status
+            $status = isset($result['success']) && $result['success'] ? 'sent' : 'failed';
+            $messageId = $result['message_id'] ?? null;
+            $error = $result['error'] ?? null;
+            $providerResponse = $result;
+        }
+
         $updateData = [
-            'status' => $result['status'],
+            'status' => $status,
             'provider' => $provider,
-            'provider_message_id' => $result['provider_message_id'] ?? null,
-            'provider_response' => json_encode($result['provider_response'] ?? []),
-            'error' => $result['error'] ?? null,
+            'provider_message_id' => $messageId,
+            'provider_response' => json_encode($providerResponse),
+            'error' => $error,
             'updated_at' => now(),
         ];
 
-        if ($result['status'] === 'sent') {
+        if ($status === 'sent') {
             $updateData['sent_at'] = now();
-        } elseif ($result['status'] === 'delivered') {
+        } elseif ($status === 'delivered') {
             $updateData['delivered_at'] = now();
+        } elseif ($status === 'failed') {
+            $updateData['failed_at'] = now();
         }
 
         DB::table('notification_logs')
@@ -180,11 +196,16 @@ class NotificationService
         
         try {
             $adapter = $this->getProviderAdapter($provider);
-            $result = $adapter->send($data);
+            $result = $adapter->send(
+                $data['to'],
+                $data['message'],
+                $data['subject'],
+                $data['metadata']
+            );
             
             $sendTime = (microtime(true) - $startTime) * 1000; // Convert to milliseconds
             
-            return array_merge($result, [
+            return array_merge($result->toArray(), [
                 'send_time' => $sendTime,
             ]);
             
@@ -203,11 +224,16 @@ class NotificationService
      */
     protected function getProviderAdapter($provider)
     {
+        $config = config("notification.providers.{$provider}", []);
+        
         return match($provider) {
-            'twilio' => app('App\Services\Adapters\TwilioAdapter'),
-            'whatsapp' => app('App\Services\Adapters\WhatsAppAdapter'),
-            'sendgrid' => app('App\Services\Adapters\SendGridAdapter'),
-            'mailgun' => app('App\Services\Adapters\MailgunAdapter'),
+            'beem' => new \App\Services\Adapters\SmsAdapter($config, 'beem'),
+            'termii' => new \App\Services\Adapters\SmsAdapter($config, 'termii'),
+            'twilio' => new \App\Services\Adapters\SmsAdapter($config, 'twilio'),
+            'whatsapp' => new \App\Services\Adapters\WhatsAppAdapter($config, 'whatsapp'),
+            'resend' => new \App\Services\Adapters\EmailAdapter($config, 'resend'),
+            'sendgrid' => new \App\Services\Adapters\EmailAdapter($config, 'sendgrid'),
+            'mailgun' => new \App\Services\Adapters\EmailAdapter($config, 'mailgun'),
             default => throw new \Exception("Unsupported provider: {$provider}"),
         };
     }
@@ -298,5 +324,38 @@ class NotificationService
                 'status' => 'cancelled',
                 'updated_at' => now(),
             ]);
+    }
+
+    /**
+     * Get provider for specific country
+     */
+    public function getProviderForCountry($channel, $countryCode)
+    {
+        $channelConfig = config("notification.channels.{$channel}", []);
+        $providers = $channelConfig['providers'] ?? [];
+        $countryCode = strtolower($countryCode);
+        
+        // Find providers that support this country
+        $availableProviders = [];
+        
+        foreach ($providers as $provider) {
+            $providerConfig = config("notification.providers.{$provider}", []);
+            $countries = array_map('strtolower', $providerConfig['countries'] ?? []);
+            
+            if (in_array($countryCode, $countries)) {
+                $availableProviders[] = [
+                    'provider' => $provider,
+                    'priority' => $providerConfig['priority'] ?? 0
+                ];
+            }
+        }
+        
+        // Sort by priority (highest first)
+        usort($availableProviders, function($a, $b) {
+            return $b['priority'] - $a['priority'];
+        });
+        
+        // Return highest priority provider for this country
+        return !empty($availableProviders) ? $availableProviders[0]['provider'] : null;
     }
 }

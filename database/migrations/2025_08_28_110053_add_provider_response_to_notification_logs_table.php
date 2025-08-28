@@ -11,10 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->boolean('is_admin')->default(false);
-            $table->json('admin_permissions')->nullable();
-            $table->timestamp('last_login')->nullable();
+        Schema::table('notification_logs', function (Blueprint $table) {
+            $table->json('provider_response')->nullable()->after('provider_message_id');
         });
     }
 
@@ -23,8 +21,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->dropColumn(['is_admin', 'admin_permissions', 'last_login']);
+        Schema::table('notification_logs', function (Blueprint $table) {
+            $table->dropColumn('provider_response');
         });
     }
 };

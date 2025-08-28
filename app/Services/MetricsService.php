@@ -172,18 +172,34 @@ class MetricsService
     protected function incrementCounter($metric, $labels = [], $value = 1)
     {
         try {
-            DB::table('metrics')->updateOrInsert(
-                [
+            $labelsJson = json_encode($labels);
+            $createdAt = now()->format('Y-m-d H:i:00'); // Round to minute
+            
+            // Try to find existing record using raw SQL to avoid JSON comparison issues
+            $existing = DB::select("
+                SELECT id, value FROM metrics 
+                WHERE metric = ? AND labels::text = ? AND type = ? AND created_at = ?
+            ", [$metric, $labelsJson, 'counter', $createdAt]);
+            
+            if (!empty($existing)) {
+                // Update existing record
+                DB::table('metrics')
+                    ->where('id', $existing[0]->id)
+                    ->update([
+                        'value' => $existing[0]->value + $value,
+                        'updated_at' => now(),
+                    ]);
+            } else {
+                // Insert new record
+                DB::table('metrics')->insert([
                     'metric' => $metric,
-                    'labels' => json_encode($labels),
+                    'labels' => $labelsJson,
                     'type' => 'counter',
-                    'created_at' => now()->format('Y-m-d H:i:00'), // Round to minute
-                ],
-                [
-                    'value' => DB::raw("value + {$value}"),
+                    'value' => $value,
+                    'created_at' => $createdAt,
                     'updated_at' => now(),
-                ]
-            );
+                ]);
+            }
         } catch (\Exception $e) {
             Log::error('Failed to record counter metric', [
                 'metric' => $metric,
@@ -222,17 +238,33 @@ class MetricsService
     protected function setGauge($metric, $value, $labels = [])
     {
         try {
-            DB::table('metrics')->updateOrInsert(
-                [
+            $labelsJson = json_encode($labels);
+            
+            // Try to find existing record using raw SQL to avoid JSON comparison issues
+            $existing = DB::select("
+                SELECT id FROM metrics 
+                WHERE metric = ? AND labels::text = ? AND type = ?
+            ", [$metric, $labelsJson, 'gauge']);
+            
+            if (!empty($existing)) {
+                // Update existing record
+                DB::table('metrics')
+                    ->where('id', $existing[0]->id)
+                    ->update([
+                        'value' => $value,
+                        'updated_at' => now(),
+                    ]);
+            } else {
+                // Insert new record
+                DB::table('metrics')->insert([
                     'metric' => $metric,
-                    'labels' => json_encode($labels),
+                    'labels' => $labelsJson,
                     'type' => 'gauge',
-                ],
-                [
                     'value' => $value,
+                    'created_at' => now(),
                     'updated_at' => now(),
-                ]
-            );
+                ]);
+            }
         } catch (\Exception $e) {
             Log::error('Failed to record gauge metric', [
                 'metric' => $metric,

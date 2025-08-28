@@ -25,6 +25,10 @@ class SmsAdapter implements ProviderAdapterInterface
 
         try {
             switch ($this->provider) {
+                case 'beem':
+                    return $this->sendViaBeem($to, $message, $metadata, $startTime);
+                case 'termii':
+                    return $this->sendViaTermii($to, $message, $metadata, $startTime);
                 case 'twilio':
                     return $this->sendViaTwilio($to, $message, $metadata, $startTime);
                 default:
@@ -47,6 +51,131 @@ class SmsAdapter implements ProviderAdapterInterface
                 $e->getMessage(),
                 [],
                 $this->getResponseTime($startTime)
+            );
+        }
+    }
+
+    /**
+     * Send SMS via Beem (Tanzania)
+     */
+    protected function sendViaBeem(string $to, string $message, array $metadata, float $startTime): ProviderResponse
+    {
+        $apiKey = $this->config['api_key'];
+        $secretKey = $this->config['secret_key'];
+        $senderName = $this->config['sender_name'] ?? 'SHULESOFT';
+
+        // Clean phone number (remove + if present)
+        $cleanPhone = str_replace('+', '', $to);
+
+        $payload = [
+            'source_addr' => $senderName,
+            'encoding' => 0,
+            'schedule_time' => '',
+            'message' => $message,
+            'recipients' => [
+                [
+                    'recipient_id' => '1',
+                    'dest_addr' => $cleanPhone
+                ]
+            ]
+        ];
+
+        $response = Http::withHeaders([
+            'Authorization' => 'Basic ' . base64_encode("{$apiKey}:{$secretKey}"),
+            'Content-Type' => 'application/json'
+        ])->post('https://apisms.beem.africa/v1/send', $payload);
+
+        $responseTime = $this->getResponseTime($startTime);
+
+        if ($response->successful()) {
+            $responseData = $response->json();
+            
+            return ProviderResponse::success(
+                $this->provider,
+                $responseData['request_id'] ?? null,
+                [],
+                $responseTime
+            );
+        } else {
+            $errorData = $response->json();
+            $errorMessage = $errorData['message'] ?? 'Unknown error occurred';
+            
+            Log::error('Beem SMS API error', [
+                'status' => $response->status(),
+                'error' => $errorMessage,
+                'to' => $to,
+                'response' => $errorData
+            ]);
+
+            return ProviderResponse::failure(
+                $this->provider,
+                $errorMessage,
+                ['status_code' => $response->status()],
+                $responseTime
+            );
+        }
+    }
+
+    /**
+     * Send SMS via Termii (Nigeria)
+     */
+    protected function sendViaTermii(string $to, string $message, array $metadata, float $startTime): ProviderResponse
+    {
+        $apiKey = $this->config['api_key'];
+        $from = $this->config['from'] ?? 'N-Alert';
+        $channel = $this->config['channel'] ?? 'dnd';
+        $type = $this->config['type'] ?? 'plain';
+
+        $payload = [
+            'api_key' => $apiKey,
+            'to' => $to,
+            'from' => $from,
+            'sms' => $message,
+            'type' => $type,
+            'channel' => $channel
+        ];
+
+        $response = Http::withHeaders([
+            'Content-Type' => 'application/json'
+        ])->post('https://v3.api.termii.com/api/sms/send', $payload);
+
+        $responseTime = $this->getResponseTime($startTime);
+
+        if ($response->successful()) {
+            $responseData = $response->json();
+            
+            // Termii returns success when message_id exists and code is 'ok'
+            if (isset($responseData['message_id']) && $responseData['code'] == 'ok') {
+                return ProviderResponse::success(
+                    $this->provider,
+                    $responseData['message_id'],
+                    $responseData,
+                    $responseTime
+                );
+            } else {
+                return ProviderResponse::failure(
+                    $this->provider,
+                    $responseData['message'] ?? 'Unknown error',
+                    $responseData,
+                    $responseTime
+                );
+            }
+        } else {
+            $errorData = $response->json();
+            $errorMessage = $errorData['message'] ?? 'Unknown error occurred';
+            
+            Log::error('Termii SMS API error', [
+                'status' => $response->status(),
+                'error' => $errorMessage,
+                'to' => $to,
+                'response' => $errorData
+            ]);
+
+            return ProviderResponse::failure(
+                $this->provider,
+                $errorMessage,
+                ['status_code' => $response->status()],
+                $responseTime
             );
         }
     }
@@ -108,6 +237,10 @@ class SmsAdapter implements ProviderAdapterInterface
     {
         try {
             switch ($this->provider) {
+                case 'beem':
+                    return $this->checkBeemHealth();
+                case 'termii':
+                    return $this->checkTermiiHealth();
                 case 'twilio':
                     return $this->checkTwilioHealth();
                 default:
@@ -116,6 +249,39 @@ class SmsAdapter implements ProviderAdapterInterface
         } catch (\Exception $e) {
             return false;
         }
+    }
+
+    /**
+     * Check Beem health
+     */
+    protected function checkBeemHealth(): bool
+    {
+        $apiKey = $this->config['api_key'];
+        $secretKey = $this->config['secret_key'];
+
+        // Beem doesn't have a dedicated health endpoint, so we'll check balance
+        $response = Http::withHeaders([
+            'Authorization' => 'Basic ' . base64_encode("{$apiKey}:{$secretKey}"),
+            'Content-Type' => 'application/json'
+        ])->timeout(10)->get('https://apisms.beem.africa/public/v1/vendors/balance');
+
+        return $response->successful();
+    }
+
+    /**
+     * Check Termii health
+     */
+    protected function checkTermiiHealth(): bool
+    {
+        $apiKey = $this->config['api_key'];
+
+        // Check Termii balance endpoint for health
+        $response = Http::timeout(10)
+            ->get('https://v3.api.termii.com/api/get-balance', [
+                'api_key' => $apiKey
+            ]);
+
+        return $response->successful();
     }
 
     /**

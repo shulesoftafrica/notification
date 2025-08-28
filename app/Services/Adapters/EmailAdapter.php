@@ -25,6 +25,8 @@ class EmailAdapter implements ProviderAdapterInterface
 
         try {
             switch ($this->provider) {
+                case 'resend':
+                    return $this->sendViaResend($to, $message, $subject, $metadata, $startTime);
                 case 'sendgrid':
                     return $this->sendViaSendGrid($to, $message, $subject, $metadata, $startTime);
                 case 'mailgun':
@@ -49,6 +51,68 @@ class EmailAdapter implements ProviderAdapterInterface
                 $e->getMessage(),
                 [],
                 $this->getResponseTime($startTime)
+            );
+        }
+    }
+
+    /**
+     * Send email via Resend
+     */
+    protected function sendViaResend(string $to, string $message, ?string $subject, array $metadata, float $startTime): ProviderResponse
+    {
+        $apiKey = $this->config['api_key'];
+        $fromEmail = $this->config['from_email'];
+        $fromName = $this->config['from_name'] ?? 'Notification Service';
+
+        $payload = [
+            'from' => $fromName ? "{$fromName} <{$fromEmail}>" : $fromEmail,
+            'to' => [$to],
+            'subject' => $subject ?? 'Notification',
+            'html' => $message,
+        ];
+
+        // Add tags from metadata if available
+        if (!empty($metadata['tags'])) {
+            $payload['tags'] = array_slice($metadata['tags'], 0, 10); // Resend allows max 10 tags
+        }
+
+        // Add reply-to if specified
+        if (!empty($metadata['reply_to'])) {
+            $payload['reply_to'] = [$metadata['reply_to']];
+        }
+
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $apiKey,
+            'Content-Type' => 'application/json'
+        ])->post('https://api.resend.com/emails', $payload);
+
+        $responseTime = $this->getResponseTime($startTime);
+
+        if ($response->successful()) {
+            $responseData = $response->json();
+            
+            return ProviderResponse::success(
+                $this->provider,
+                $responseData['id'] ?? null,
+                [],
+                $responseTime
+            );
+        } else {
+            $errorData = $response->json();
+            $errorMessage = $errorData['message'] ?? 'Unknown error occurred';
+            
+            Log::error('Resend API error', [
+                'status' => $response->status(),
+                'error' => $errorMessage,
+                'to' => $to,
+                'response' => $errorData
+            ]);
+
+            return ProviderResponse::failure(
+                $this->provider,
+                $errorMessage,
+                ['status_code' => $response->status()],
+                $responseTime
             );
         }
     }
@@ -180,6 +244,8 @@ class EmailAdapter implements ProviderAdapterInterface
     {
         try {
             switch ($this->provider) {
+                case 'resend':
+                    return $this->checkResendHealth();
                 case 'sendgrid':
                     return $this->checkSendGridHealth();
                 case 'mailgun':
@@ -190,6 +256,21 @@ class EmailAdapter implements ProviderAdapterInterface
         } catch (\Exception $e) {
             return false;
         }
+    }
+
+    /**
+     * Check Resend health
+     */
+    protected function checkResendHealth(): bool
+    {
+        $apiKey = $this->config['api_key'];
+
+        // Resend doesn't have a dedicated health endpoint, so we check API keys endpoint
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $apiKey
+        ])->timeout(10)->get('https://api.resend.com/api-keys');
+
+        return $response->successful();
     }
 
     /**
@@ -351,6 +432,9 @@ class EmailAdapter implements ProviderAdapterInterface
     {
         // Rough cost estimation
         switch ($this->provider) {
+            case 'resend':
+                // Resend: $0.001 per email (first 3,000 free monthly)
+                return 0.001;
             case 'sendgrid':
                 // SendGrid: ~$0.0006 per email for most plans
                 return 0.0006;

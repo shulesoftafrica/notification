@@ -4,6 +4,8 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
 
 class SendMessageRequest extends FormRequest
 {
@@ -23,14 +25,15 @@ class SendMessageRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'type' => ['required', 'string', Rule::in(['sms', 'email', 'whatsapp'])],
+            'channel' => ['required', 'string', Rule::in(['sms', 'email', 'whatsapp'])],
             'to' => ['required', 'string', 'max:255'],
             'message' => ['required', 'string', 'max:4096'],
-            'subject' => ['required_if:type,email', 'string', 'max:255'],
+            'subject' => ['required_if:channel,email', 'string', 'max:255'],
             'priority' => ['sometimes', 'string', Rule::in(['low', 'normal', 'high', 'urgent'])],
             'scheduled_at' => ['sometimes', 'date', 'after:now'],
-            'template_id' => ['sometimes', 'string', 'max:100'],
-            'template_data' => ['sometimes', 'array'],
+            'template_id' => ['nullable', 'string', 'max:100'],
+            'template_data' => ['nullable', 'array'],
+            'template_data.*' => ['string', 'max:1000'],
             'metadata' => ['sometimes', 'array', 'max:10'],
             'metadata.*' => ['string', 'max:500'],
             'webhook_url' => ['sometimes', 'url', 'max:2048'],
@@ -46,8 +49,8 @@ class SendMessageRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'type.required' => 'Message type is required',
-            'type.in' => 'Message type must be one of: sms, email, whatsapp',
+            'channel.required' => 'Message channel is required',
+            'channel.in' => 'Message channel must be one of: sms, email, whatsapp',
             'to.required' => 'Recipient is required',
             'to.max' => 'Recipient must not exceed 255 characters',
             'message.required' => 'Message content is required',
@@ -57,8 +60,11 @@ class SendMessageRequest extends FormRequest
             'priority.in' => 'Priority must be one of: low, normal, high, urgent',
             'scheduled_at.date' => 'Scheduled time must be a valid date',
             'scheduled_at.after' => 'Scheduled time must be in the future',
+            'template_id.string' => 'Template ID must be a string',
             'template_id.max' => 'Template ID must not exceed 100 characters',
             'template_data.array' => 'Template data must be an array',
+            'template_data.*.string' => 'Template data values must be strings',
+            'template_data.*.max' => 'Template data values must not exceed 1000 characters',
             'metadata.array' => 'Metadata must be an array',
             'metadata.max' => 'Maximum 10 metadata items allowed',
             'metadata.*.string' => 'Metadata values must be strings',
@@ -73,20 +79,34 @@ class SendMessageRequest extends FormRequest
         ];
     }
 
+     /**
+     * Handle a failed validation attempt - FORCE JSON RESPONSE
+     */
+    protected function failedValidation(Validator $validator)
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+                'code' => 'VALIDATION_ERROR'
+            ], 422)
+        );
+    }
     /**
      * Prepare the data for validation
      */
     protected function prepareForValidation(): void
     {
         // Normalize phone numbers for SMS and WhatsApp
-        if (in_array($this->type, ['sms', 'whatsapp']) && $this->to) {
+        if (in_array($this->channel, ['sms', 'whatsapp']) && $this->to) {
             $this->merge([
                 'to' => $this->normalizePhoneNumber($this->to)
             ]);
         }
 
         // Normalize email addresses
-        if ($this->type === 'email' && $this->to) {
+        if ($this->channel === 'email' && $this->to) {
             $this->merge([
                 'to' => strtolower(trim($this->to))
             ]);
@@ -112,26 +132,26 @@ class SendMessageRequest extends FormRequest
     {
         $validator->after(function ($validator) {
             // Additional validation for phone numbers
-            if (in_array($this->type, ['sms', 'whatsapp'])) {
+            if (in_array($this->channel, ['sms', 'whatsapp'])) {
                 if (!$this->isValidPhoneNumber($this->to)) {
                     $validator->errors()->add('to', 'Invalid phone number format. Use international format (e.g., +1234567890)');
                 }
             }
 
             // Additional validation for email addresses
-            if ($this->type === 'email') {
+            if ($this->channel === 'email') {
                 if (!filter_var($this->to, FILTER_VALIDATE_EMAIL)) {
                     $validator->errors()->add('to', 'Invalid email address format');
                 }
             }
 
             // Validate template data if template_id is provided
-            if ($this->template_id && !$this->template_data) {
+            if (!empty($this->template_id) && empty($this->template_data)) {
                 $validator->errors()->add('template_data', 'Template data is required when using a template');
             }
 
             // Validate message length for SMS
-            if ($this->type === 'sms' && strlen($this->message) > 1600) {
+            if ($this->channel === 'sms' && strlen($this->message) > 1600) {
                 $validator->errors()->add('message', 'SMS message too long. Maximum 1600 characters allowed');
             }
         });

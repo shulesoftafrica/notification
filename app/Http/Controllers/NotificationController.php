@@ -19,17 +19,19 @@ class NotificationController extends Controller
         $this->middleware('api.auth');
     }
 
+
     /**
      * Send a notification
      */
     public function send(SendMessageRequest $request): JsonResponse
     {
+          
         try {
             $validated = $request->validated();
             
             // Create message record
             $message = Message::create([
-                'type' => $validated['type'],
+                'channel' => $validated['channel'],
                 'recipient' => $validated['to'],
                 'subject' => $validated['subject'] ?? null,
                 'message' => $validated['message'],
@@ -44,50 +46,26 @@ class NotificationController extends Controller
                 'user_agent' => $request->userAgent(),
             ]);
 
-            // Send the notification
-            switch ($validated['type']) {
-                case 'sms':
-                    $result = $this->notificationService->sendSms(
-                        $validated['to'],
-                        $validated['message'],
-                        $validated['metadata'] ?? [],
-                        $validated['provider'] ?? null
-                    );
-                    break;
-
-                case 'email':
-                    $result = $this->notificationService->sendEmail(
-                        $validated['to'],
-                        $validated['subject'],
-                        $validated['message'],
-                        $validated['metadata'] ?? [],
-                        $validated['provider'] ?? null
-                    );
-                    break;
-
-                case 'whatsapp':
-                    $result = $this->notificationService->sendWhatsApp(
-                        $validated['to'],
-                        $validated['message'],
-                        $validated['metadata'] ?? [],
-                        $validated['provider'] ?? null
-                    );
-                    break;
-
-                default:
-                    return response()->json([
-                        'error' => 'Invalid notification type',
-                        'message' => 'Supported types: sms, email, whatsapp'
-                    ], 400);
-            }
+            // Send the notification using unified service method
+            $result = $this->notificationService->send([
+                'channel' => $validated['channel'],
+                'to' => $validated['to'],
+                'subject' => $validated['subject'] ?? null,
+                'message' => $validated['message'],
+                'template_id' => $validated['template_id'] ?? null,
+                'priority' => $validated['priority'] ?? 'normal',
+                'metadata' => $validated['metadata'] ?? [],
+                'provider' => $validated['provider'] ?? null,
+                'webhook_url' => $validated['webhook_url'] ?? null,
+            ]);
 
             // Update message with result
             $message->update([
-                'status' => $result['success'] ? 'sent' : 'failed',
-                'provider' => $result['provider'],
+                'status' => $result['status'] ?? 'failed',
+                'provider' => $result['provider'] ?? null,
                 'external_id' => $result['message_id'] ?? null,
-                'sent_at' => $result['success'] ? now() : null,
-                'failed_at' => !$result['success'] ? now() : null,
+                'sent_at' => ($result['status'] ?? 'failed') === 'sent' ? now() : null,
+                'failed_at' => ($result['status'] ?? 'failed') === 'failed' ? now() : null,
                 'error_message' => $result['error'] ?? null,
             ]);
 
@@ -96,15 +74,24 @@ class NotificationController extends Controller
                 'message_id' => $message->id,
                 'external_id' => $result['message_id'] ?? null,
                 'status' => $message->status,
-                'provider' => $result['provider'],
+                'provider' => $result['provider'] ?? null,
                 'data' => new MessageResource($message)
             ], 201);
 
         } catch (\Exception $e) {
+            // Update message status to failed
+            $message->update([
+                'status' => 'failed',
+                'failed_at' => now(),
+                'error_message' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'success' => false,
                 'error' => 'Failed to send notification',
-                'message' => $e->getMessage()
+                'message' => $e->getMessage(),
+                'message_id' => $message->id,
+                'data' => new MessageResource($message)
             ], 500);
         }
     }

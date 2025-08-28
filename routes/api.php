@@ -48,10 +48,24 @@ Route::middleware(['admin.auth'])->prefix('admin')->group(function () {
 });
 
 // Notification API
-Route::middleware(['rate.limit'])->group(function () {
-    Route::post('/notifications', [NotificationController::class, 'send']);
-    Route::get('/notifications/{id}', [NotificationController::class, 'status']);
-    Route::get('/notifications', [NotificationController::class, 'index']);
+Route::post('/notifications/send', [NotificationController::class, 'send']);
+Route::get('/notifications/{id}', [NotificationController::class, 'status']);
+Route::get('/notifications', [NotificationController::class, 'index']);
+
+// Test routes for debugging
+Route::get('/test', function () {
+    Log::info('Test route accessed', ['timestamp' => now(), 'ip' => request()->ip()]);
+    return response()->json([
+        'message' => 'API is working',
+        'timestamp' => now(),
+        'route' => 'api/test',
+        'logging' => 'enabled'
+    ]);
+});
+
+Route::get('/test-error', function () {
+    Log::error('Intentional test error');
+    throw new \Exception('This is a test error for logging verification');
 });
 
 // Provider Management API

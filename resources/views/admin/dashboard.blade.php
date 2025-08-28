@@ -109,6 +109,7 @@
             <div class="px-4 py-5 sm:px-6">
                 <h3 class="text-lg leading-6 font-medium text-gray-900">
                     Recent Users
+                    <?php echo sha1('secret-keydff6d4ff5dc357cf451d1855ab9cbda562645c9f') ?>
                 </h3>
                 <p class="mt-1 max-w-2xl text-sm text-gray-500">
                     Latest registered users in the system
