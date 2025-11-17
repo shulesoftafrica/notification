@@ -8,10 +8,12 @@ use Illuminate\Support\Facades\Log;
 class WhatsAppAdapter implements ProviderAdapterInterface
 {
     protected array $config;
+    protected string $providerType;
 
-    public function __construct(array $config)
+    public function __construct(array $config, string $providerType = 'whatsapp')
     {
         $this->config = $config;
+        $this->providerType = $providerType;
     }
 
     /**
@@ -22,16 +24,23 @@ class WhatsAppAdapter implements ProviderAdapterInterface
         $startTime = microtime(true);
 
         try {
-            // WhatsApp Business API via Meta/Facebook
-            return $this->sendViaWhatsAppAPI($to, $message, $metadata, $startTime);
+            // Determine which WhatsApp service to use based on type in metadata or provider type
+            $whatsappType = $metadata['type'] ?? $this->config['type'] ?? 'official';
+            
+            if ($whatsappType === 'wasender' || $this->providerType === 'wasender') {
+                return $this->sendViaWasender($to, $message, $metadata, $startTime);
+            } else {
+                return $this->sendViaWhatsAppAPI($to, $message, $metadata, $startTime);
+            }
         } catch (\Exception $e) {
             Log::error('WhatsApp sending failed', [
                 'error' => $e->getMessage(),
-                'to' => $to
+                'to' => $to,
+                'type' => $whatsappType ?? 'unknown'
             ]);
 
             return ProviderResponse::failure(
-                'whatsapp',
+                $this->providerType,
                 $e->getMessage(),
                 [],
                 $this->getResponseTime($startTime)
@@ -175,11 +184,81 @@ class WhatsAppAdapter implements ProviderAdapterInterface
     }
 
     /**
+     * Send message via Wasender API
+     */
+    protected function sendViaWasender(string $to, string $message, array $metadata, float $startTime): ProviderResponse
+    {
+        $apiUrl = $this->config['api_url'];
+        $apiKey = $this->config['api_key'];
+        $deviceId = $this->config['device_id'];
+
+        // Clean phone number (ensure it has country code)
+        $phoneNumber = preg_replace('/[^\d+]/', '', $to);
+        if (!str_starts_with($phoneNumber, '+')) {
+            $phoneNumber = '+' . $phoneNumber;
+        }
+
+        $payload = [
+            'to' => $phoneNumber,
+            'text' => $message,
+            'device_id' => $deviceId
+        ];
+
+        // Handle media messages for Wasender
+        if (!empty($metadata['media_type']) && !empty($metadata['media_url'])) {
+            $mediaType = $metadata['media_type'];
+            switch ($mediaType) {
+                case 'image':
+                    $payload['image_url'] = $metadata['media_url'];
+                    break;
+                case 'video':
+                    $payload['video_url'] = $metadata['media_url'];
+                    break;
+                case 'document':
+                    $payload['document_url'] = $metadata['media_url'];
+                    break;
+                case 'audio':
+                    $payload['audio_url'] = $metadata['media_url'];
+                    break;
+            }
+            // Remove text if media is present
+            unset($payload['text']);
+        }
+
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $apiKey,
+            'Content-Type' => 'application/json'
+        ])->timeout(30)->post("{$apiUrl}/api/send-message", $payload);
+
+        $responseTime = $this->getResponseTime($startTime);
+
+        if ($response->successful()) {
+            $data = $response->json();
+            
+            return ProviderResponse::success(
+                'wasender',
+                $data['data']['msgId'] ?? uniqid('wasender_'),
+                [
+                    'status' => $data['data']['status'] ?? 'sent',
+                    'jid' => $data['data']['jid'] ?? $phoneNumber,
+                    'response_code' => $response->status(),
+                    'device_id' => $deviceId
+                ],
+                $this->getCost($phoneNumber, $message),
+                $responseTime
+            );
+        }
+
+        $error = $response->json()['error'] ?? $response->json()['message'] ?? 'Unknown Wasender error';
+        return ProviderResponse::failure('wasender', $error, [], $responseTime);
+    }
+
+    /**
      * Get provider name
      */
     public function getProviderName(): string
     {
-        return 'whatsapp';
+        return $this->providerType;
     }
 
     /**
@@ -188,19 +267,47 @@ class WhatsAppAdapter implements ProviderAdapterInterface
     public function isHealthy(): bool
     {
         try {
-            $accessToken = $this->config['access_token'];
-            $phoneNumberId = $this->config['phone_number_id'];
-            $apiVersion = $this->config['api_version'] ?? 'v18.0';
-
-            // Check phone number status
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $accessToken
-            ])->timeout(10)->get("https://graph.facebook.com/{$apiVersion}/{$phoneNumberId}");
-
-            return $response->successful();
+            if ($this->providerType === 'wasender') {
+                return $this->checkWasenderHealth();
+            } else {
+                return $this->checkOfficialWhatsAppHealth();
+            }
         } catch (\Exception $e) {
             return false;
         }
+    }
+
+    /**
+     * Check Official WhatsApp Business API health
+     */
+    protected function checkOfficialWhatsAppHealth(): bool
+    {
+        $accessToken = $this->config['access_token'];
+        $phoneNumberId = $this->config['phone_number_id'];
+        $apiVersion = $this->config['api_version'] ?? 'v18.0';
+
+        // Check phone number status
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $accessToken
+        ])->timeout(10)->get("https://graph.facebook.com/{$apiVersion}/{$phoneNumberId}");
+
+        return $response->successful();
+    }
+
+    /**
+     * Check Wasender API health
+     */
+    protected function checkWasenderHealth(): bool
+    {
+        $apiUrl = $this->config['api_url'];
+        $apiKey = $this->config['api_key'];
+
+        // Check Wasender API status
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $apiKey
+        ])->timeout(10)->get("{$apiUrl}/api/status");
+
+        return $response->successful();
     }
 
     /**

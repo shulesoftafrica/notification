@@ -91,11 +91,23 @@ return [
 
         'whatsapp' => [
             'driver' => 'whatsapp_business',
-            'phone_id' => env('WHATSAPP_BUSINESS_PHONE_ID', 'fake-phone-id'),
+            'phone_number_id' => env('WHATSAPP_BUSINESS_PHONE_ID', 'fake-phone-id'),
             'access_token' => env('WHATSAPP_ACCESS_TOKEN', 'fake-access-token'),
             'channels' => ['whatsapp'],
             'priority' => 90,
             'enabled' => true,
+            'type' => 'official', // official or wasender
+        ],
+
+        'wasender' => [
+            'driver' => 'wasender',
+            'api_url' => env('WASENDER_API_URL', 'https://api.wasender.com'),
+            'api_key' => env('WASENDER_API_KEY', 'fake-wasender-api-key'),
+            'device_id' => env('WASENDER_DEVICE_ID', 'fake-device-id'),
+            'channels' => ['whatsapp'],
+            'priority' => 85,
+            'enabled' => true,
+            'type' => 'wasender', // official or wasender
         ],
     ],
 
@@ -118,7 +130,7 @@ return [
             'default' => 'beem',
         ],
         'whatsapp' => [
-            'providers' => ['whatsapp'],
+            'providers' => ['whatsapp', 'wasender'],
             'default' => 'whatsapp',
         ],
     ],

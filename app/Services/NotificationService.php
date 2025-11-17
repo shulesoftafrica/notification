@@ -40,12 +40,12 @@ class NotificationService
             $logId = $this->storeNotificationLog($messageId, $preparedData);
             
             // Select provider
-            $provider = $this->selectProvider($preparedData['channel'], $preparedData['provider']);
+            $provider = $this->selectProvider($preparedData['channel'], $preparedData['provider'], $preparedData);
             
             // Send notification
             $result = $this->sendNotification($provider, $preparedData);
             
-            // Update log with result
+            // Update log with result  
             $this->updateNotificationLog($logId, $result, $provider);
             
             // Track metrics
@@ -58,9 +58,7 @@ class NotificationService
                 'status' => $result['success'] ? 'sent' : 'failed',
                 'provider' => $provider,
                 'estimated_delivery' => $result['estimated_delivery'] ?? null,
-            ];
-            
-        } catch (\Exception $e) {
+            ];        } catch (\Exception $e) {
             Log::error('Notification send failed', [
                 'message_id' => $messageId,
                 'error' => $e->getMessage(),
@@ -101,6 +99,8 @@ class NotificationService
                 'user_agent' => $data['user_agent'] ?? null,
                 'retry' => $data['retry'] ?? false,
                 'original_id' => $data['original_id'] ?? null,
+                'sender_name' => $data['sender_name'] ?? null,
+                'type' => $data['type'] ?? null, // WhatsApp provider type
             ]),
         ];
     }
@@ -174,7 +174,7 @@ class NotificationService
     /**
      * Select provider for notification
      */
-    protected function selectProvider($channel, $preferredProvider = null)
+    protected function selectProvider($channel, $preferredProvider = null, $data = [])
     {
         if ($preferredProvider) {
             // Check if preferred provider is available
@@ -183,8 +183,39 @@ class NotificationService
             }
         }
 
+        // Handle WhatsApp type-based routing
+        if ($channel === 'whatsapp') {
+            return $this->selectWhatsAppProvider($data);
+        }
+
         // Use failover service to select best available provider
         return $this->failoverService->selectProvider($channel);
+    }
+
+    /**
+     * Select WhatsApp provider based on type
+     */
+    protected function selectWhatsAppProvider($data = [])
+    {
+        // Get the type from data metadata
+        $type = $data['metadata']['type'] ?? 'official'; // Default to official
+        
+        if ($type === 'wasender') {
+            // Force wasender even if health check fails (for user choice)
+            $wasenderConfig = config('notification.providers.wasender', []);
+            if (!empty($wasenderConfig) && ($wasenderConfig['enabled'] ?? false)) {
+                return 'wasender';
+            }
+        }
+        
+        // For official or fallback, try whatsapp first
+        $whatsappConfig = config('notification.providers.whatsapp', []);
+        if (!empty($whatsappConfig) && ($whatsappConfig['enabled'] ?? false)) {
+            return 'whatsapp';
+        }
+        
+        // Ultimate fallback - return any available provider
+        return $this->failoverService->selectProvider('whatsapp');
     }
 
     /**
@@ -231,6 +262,7 @@ class NotificationService
             'termii' => new \App\Services\Adapters\SmsAdapter($config, 'termii'),
             'twilio' => new \App\Services\Adapters\SmsAdapter($config, 'twilio'),
             'whatsapp' => new \App\Services\Adapters\WhatsAppAdapter($config, 'whatsapp'),
+            'wasender' => new \App\Services\Adapters\WhatsAppAdapter($config, 'wasender'),
             'resend' => new \App\Services\Adapters\EmailAdapter($config, 'resend'),
             'sendgrid' => new \App\Services\Adapters\EmailAdapter($config, 'sendgrid'),
             'mailgun' => new \App\Services\Adapters\EmailAdapter($config, 'mailgun'),

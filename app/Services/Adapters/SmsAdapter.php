@@ -22,15 +22,18 @@ class SmsAdapter implements ProviderAdapterInterface
     public function send(string $to, string $message, ?string $subject = null, array $metadata = []): ProviderResponse
     {
         $startTime = microtime(true);
+        
+        // Extract sender name from metadata if provided
+        $senderName = $metadata['sender_name'] ?? null;
 
         try {
             switch ($this->provider) {
                 case 'beem':
-                    return $this->sendViaBeem($to, $message, $metadata, $startTime);
+                    return $this->sendViaBeem($to, $message, $metadata, $startTime, $senderName);
                 case 'termii':
-                    return $this->sendViaTermii($to, $message, $metadata, $startTime);
+                    return $this->sendViaTermii($to, $message, $metadata, $startTime, $senderName);
                 case 'twilio':
-                    return $this->sendViaTwilio($to, $message, $metadata, $startTime);
+                    return $this->sendViaTwilio($to, $message, $metadata, $startTime, $senderName);
                 default:
                     return ProviderResponse::failure(
                         $this->provider,
@@ -58,17 +61,17 @@ class SmsAdapter implements ProviderAdapterInterface
     /**
      * Send SMS via Beem (Tanzania)
      */
-    protected function sendViaBeem(string $to, string $message, array $metadata, float $startTime): ProviderResponse
+    protected function sendViaBeem(string $to, string $message, array $metadata, float $startTime, ?string $senderName = null): ProviderResponse
     {
         $apiKey = $this->config['api_key'];
         $secretKey = $this->config['secret_key'];
-        $senderName = $this->config['sender_name'] ?? 'SHULESOFT';
+        $effectiveSenderName = $senderName ?? $this->config['sender_name'] ?? 'SHULESOFT';
 
         // Clean phone number (remove + if present)
         $cleanPhone = str_replace('+', '', $to);
 
         $payload = [
-            'source_addr' => $senderName,
+            'source_addr' => $effectiveSenderName,
             'encoding' => 0,
             'schedule_time' => '',
             'message' => $message,
@@ -119,17 +122,17 @@ class SmsAdapter implements ProviderAdapterInterface
     /**
      * Send SMS via Termii (Nigeria)
      */
-    protected function sendViaTermii(string $to, string $message, array $metadata, float $startTime): ProviderResponse
+    protected function sendViaTermii(string $to, string $message, array $metadata, float $startTime, ?string $senderName = null): ProviderResponse
     {
         $apiKey = $this->config['api_key'];
-        $from = $this->config['from'] ?? 'N-Alert';
+        $effectiveSenderName = $senderName ?? $this->config['from'] ?? 'N-Alert';
         $channel = $this->config['channel'] ?? 'dnd';
         $type = $this->config['type'] ?? 'plain';
 
         $payload = [
             'api_key' => $apiKey,
             'to' => $to,
-            'from' => $from,
+            'from' => $effectiveSenderName,
             'sms' => $message,
             'type' => $type,
             'channel' => $channel
@@ -183,17 +186,17 @@ class SmsAdapter implements ProviderAdapterInterface
     /**
      * Send SMS via Twilio
      */
-    protected function sendViaTwilio(string $to, string $message, array $metadata, float $startTime): ProviderResponse
+    protected function sendViaTwilio(string $to, string $message, array $metadata, float $startTime, ?string $senderName = null): ProviderResponse
     {
         $accountSid = $this->config['account_sid'];
         $authToken = $this->config['auth_token'];
-        $fromNumber = $this->config['from_number'];
+        $effectiveFromNumber = $senderName ?? $this->config['from_number'];
 
         $response = Http::withBasicAuth($accountSid, $authToken)
             ->asForm()
             ->post("https://api.twilio.com/2010-04-01/Accounts/{$accountSid}/Messages.json", [
                 'To' => $to,
-                'From' => $fromNumber,
+                'From' => $effectiveFromNumber,
                 'Body' => $message,
                 'StatusCallback' => $metadata['webhook_url'] ?? null,
             ]);

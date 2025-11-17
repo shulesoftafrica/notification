@@ -56,6 +56,8 @@ class NotificationController extends Controller
                 'priority' => $validated['priority'] ?? 'normal',
                 'metadata' => $validated['metadata'] ?? [],
                 'provider' => $validated['provider'] ?? null,
+                'sender_name' => $validated['sender_name'] ?? null,
+                'type' => $validated['type'] ?? null, // WhatsApp provider type
                 'webhook_url' => $validated['webhook_url'] ?? null,
             ]);
 

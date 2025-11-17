@@ -36,6 +36,8 @@ class SendMessageRequest extends FormRequest
             'template_data.*' => ['string', 'max:1000'],
             'metadata' => ['sometimes', 'array', 'max:10'],
             'metadata.*' => ['string', 'max:500'],
+            'sender_name' => ['sometimes', 'string', 'max:50'],
+            'type' => ['sometimes', 'string', Rule::in(['official', 'wasender'])], // WhatsApp provider type
             'webhook_url' => ['sometimes', 'url', 'max:2048'],
             'tags' => ['sometimes', 'array', 'max:10'],
             'tags.*' => ['string', 'max:50'],
@@ -75,6 +77,8 @@ class SendMessageRequest extends FormRequest
             'tags.max' => 'Maximum 10 tags allowed',
             'tags.*.string' => 'Tag values must be strings',
             'tags.*.max' => 'Tag values must not exceed 50 characters',
+            'sender_name.string' => 'Sender name must be a string',
+            'sender_name.max' => 'Sender name must not exceed 50 characters',
             'provider.in' => 'Provider must be one of: twilio, whatsapp, sendgrid, mailgun',
         ];
     }
