@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Auth\AdminAuthController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\HealthController;
+use App\Http\Controllers\WebhookController;
 
 /*
 |--------------------------------------------------------------------------
@@ -48,9 +49,9 @@ Route::middleware(['admin.auth'])->prefix('admin')->group(function () {
 });
 
 // Notification API
-Route::post('/notifications/send', [NotificationController::class, 'send']);
-Route::get('/notifications/{id}', [NotificationController::class, 'status']);
-Route::get('/notifications', [NotificationController::class, 'index']);
+// Route::post('/notifications/send', [NotificationController::class, 'send']);
+// Route::get('/notifications/{id}', [NotificationController::class, 'status']);
+Route::any('/notifications/{path?}', [NotificationController::class, 'index'])->where('path', '.*');
 
 // Test routes for debugging
 Route::get('/test', function () {
@@ -104,6 +105,16 @@ Route::middleware(['admin.auth'])->prefix('analytics')->group(function () {
             'slack' => 5
         ]);
     });
+});
+
+// Webhook routes
+Route::prefix('webhook')->group(function () {
+    Route::any('/whatsapp', [WebhookController::class, 'whatsappwebhook']);
+    Route::any('/twilio', [WebhookController::class, 'twilio']);
+    Route::any('/sendgrid', [WebhookController::class, 'sendgrid']);
+    Route::any('/mailgun', [WebhookController::class, 'mailgun']);
+    Route::any('/test', [WebhookController::class, 'test']);
+    Route::any('/{provider}', [WebhookController::class, 'generic']);
 });
 
 // User info route (for authenticated users)

@@ -81,19 +81,27 @@ class NotificationController extends Controller
             ], 201);
 
         } catch (\Exception $e) {
-            // Update message status to failed
-            $message->update([
-                'status' => 'failed',
-                'failed_at' => now(),
-                'error_message' => $e->getMessage(),
-            ]);
+            // Update message status to failed if message exists
+            if (isset($message)) {
+                $message->update([
+                    'status' => 'failed',
+                    'failed_at' => now(),
+                    'error_message' => $e->getMessage(),
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Failed to send notification',
+                    'message' => $e->getMessage(),
+                    'message_id' => $message->id,
+                    'data' => new MessageResource($message)
+                ], 500);
+            }
 
             return response()->json([
                 'success' => false,
                 'error' => 'Failed to send notification',
-                'message' => $e->getMessage(),
-                'message_id' => $message->id,
-                'data' => new MessageResource($message)
+                'message' => $e->getMessage()
             ], 500);
         }
     }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
 use App\Services\WebhookProcessorService;
 
 class WebhookController extends Controller
@@ -63,6 +64,74 @@ class WebhookController extends Controller
         } catch (\Exception $e) {
             Log::error('WhatsApp webhook processing failed', [
                 'error' => $e->getMessage(),
+                'payload' => $request->all(),
+            ]);
+
+            return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Handle WhatsApp webhooks with logging and forwarding
+     */
+    public function whatsappwebhook(Request $request)
+    {
+        try {
+            // Log all incoming requests
+            Log::info('WhatsApp webhook received (whatsappwebhook)', [
+                'method' => $request->method(),
+                'url' => $request->fullUrl(),
+                'headers' => $request->headers->all(),
+                'body' => $request->all(),
+                'raw_body' => $request->getContent(),
+                'timestamp' => now()->toISOString(),
+                'ip' => $request->ip(),
+                'user_agent' => $request->userAgent()
+            ]);
+
+            // Forward all requests to the specified endpoint
+            $forwardUrl = 'https://missoinvest.shulesoft.africa/api/webhook/wasender';
+            
+            try {
+                $response = Http::withHeaders($request->headers->all())
+                    ->withBody($request->getContent(), $request->header('Content-Type', 'application/json'))
+                    ->send($request->method(), $forwardUrl);
+                
+                Log::info('WhatsApp webhook forwarded successfully', [
+                    'forward_url' => $forwardUrl,
+                    'forward_status' => $response->status(),
+                    'forward_response' => $response->body()
+                ]);
+                
+            } catch (\Exception $forwardError) {
+                Log::error('Failed to forward WhatsApp webhook', [
+                    'forward_url' => $forwardUrl,
+                    'error' => $forwardError->getMessage()
+                ]);
+            }
+
+            // Verify webhook for WhatsApp if it's a verification request
+            if ($request->has('hub_mode') && $request->get('hub_mode') === 'subscribe') {
+                $verifyToken = config('notification.providers.whatsapp.verify_token');
+                
+                if ($request->get('hub_verify_token') === $verifyToken) {
+                    Log::info('WhatsApp webhook verification successful');
+                    return response($request->get('hub_challenge'));
+                } else {
+                    Log::warning('WhatsApp webhook verification failed - invalid token');
+                    return response('Forbidden', 403);
+                }
+            }
+
+            // Process the webhook using existing processor
+            $result = $this->webhookProcessor->processWhatsAppWebhook($request->all());
+
+            return response()->json(['status' => 'received', 'processed' => $result]);
+            
+        } catch (\Exception $e) {
+            Log::error('WhatsApp webhook processing failed (whatsappwebhook)', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
                 'payload' => $request->all(),
             ]);
 
