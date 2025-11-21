@@ -66,6 +66,7 @@ class ProviderHealthService
                 'twilio' => $this->checkTwilio($config),
                 'whatsapp' => $this->checkWhatsApp($config),
                 'sendgrid' => $this->checkSendGrid($config),
+                'resend' => $this->checkResend($config),
                 'mailgun' => $this->checkMailgun($config),
                 default => $this->checkGenericHttp($config),
             };
@@ -159,6 +160,32 @@ class ProviderHealthService
                 'healthy' => true,
                 'account_type' => $response->json('type'),
                 'reputation' => $response->json('reputation'),
+            ];
+        } else {
+            return [
+                'healthy' => false,
+                'error' => 'HTTP ' . $response->status() . ': ' . $response->body(),
+            ];
+        }
+    }
+
+    /**
+     * Check Resend health
+     */
+    protected function checkResend($config)
+    {
+        $apiKey = $config['api_key'];
+
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $apiKey,
+        ])
+        ->timeout(10)
+        ->get('https://api.resend.com/api-keys');
+
+        if ($response->successful()) {
+            return [
+                'healthy' => true,
+                'status' => 'OK',
             ];
         } else {
             return [

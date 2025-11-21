@@ -41,7 +41,7 @@ class SendMessageRequest extends FormRequest
             'webhook_url' => ['sometimes', 'url', 'max:2048'],
             'tags' => ['sometimes', 'array', 'max:10'],
             'tags.*' => ['string', 'max:50'],
-            'provider' => ['sometimes', 'string', Rule::in(['twilio', 'whatsapp', 'sendgrid', 'mailgun'])],
+            'provider' => ['sometimes', 'string', Rule::in(['twilio', 'whatsapp', 'sendgrid', 'mailgun', 'resend', 'beem', 'termii'])],
         ];
     }
 
