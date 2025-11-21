@@ -16,7 +16,7 @@ class MessageResource extends JsonResource
     {
         return [
             'id' => $this->id,
-            'type' => $this->type,
+            'channel' => $this->channel,
             'recipient' => $this->formatRecipient(),
             'subject' => $this->when($this->type === 'email', $this->subject),
             'message' => $this->when($request->user()?->isAdmin(), $this->message),

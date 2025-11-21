@@ -141,9 +141,9 @@ class NotificationController extends Controller
                 $query->where('api_key', $apiKey);
             }
 
-            // Filter by type
-            if ($request->has('type')) {
-                $query->where('type', $request->type);
+            // Filter by type/channel
+            if ($request->has('channel')) {
+                $query->where('channel', $request->channel);
             }
 
             // Filter by status
@@ -174,7 +174,7 @@ class NotificationController extends Controller
 
             return response()->json([
                 'success' => true,
-                'data' => MessageResource::collection($messages->items()),
+                'data' => MessageResource::collection($messages),
                 'meta' => [
                     'current_page' => $messages->currentPage(),
                     'per_page' => $messages->perPage(),

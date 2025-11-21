@@ -49,9 +49,12 @@ Route::middleware(['admin.auth'])->prefix('admin')->group(function () {
 });
 
 // Notification API
-// Route::post('/notifications/send', [NotificationController::class, 'send']);
-// Route::get('/notifications/{id}', [NotificationController::class, 'status']);
-Route::any('/notifications/{path?}', [NotificationController::class, 'index'])->where('path', '.*');
+Route::post('/notifications/send', [NotificationController::class, 'send']);
+Route::get('/notifications/{id}', [NotificationController::class, 'status']);
+Route::get('/notifications', [NotificationController::class, 'index']);
+
+
+// Route::any('/notifications/{path?}', [NotificationController::class, 'index'])->where('path', '.*');
 
 // Test routes for debugging
 Route::get('/test', function () {
