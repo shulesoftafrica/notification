@@ -228,7 +228,8 @@ class WhatsAppAdapter implements ProviderAdapterInterface
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $apiKey,
             'Content-Type' => 'application/json'
-        ])->timeout(30)->post("{$apiUrl}/api/send-message", $payload);
+        ])
+        ->post("{$apiUrl}/api/send-message", $payload);
 
         $responseTime = $this->getResponseTime($startTime);
 
@@ -289,7 +290,7 @@ class WhatsAppAdapter implements ProviderAdapterInterface
         // Check phone number status
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $accessToken
-        ])->timeout(10)->get("https://graph.facebook.com/{$apiVersion}/{$phoneNumberId}");
+        ])->get("https://graph.facebook.com/{$apiVersion}/{$phoneNumberId}");
 
         return $response->successful();
     }
@@ -305,7 +306,7 @@ class WhatsAppAdapter implements ProviderAdapterInterface
         // Check Wasender API status
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $apiKey
-        ])->timeout(10)->get("{$apiUrl}/api/status");
+        ])->get("{$apiUrl}/api/status");
 
         return $response->successful();
     }

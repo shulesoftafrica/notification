@@ -4,10 +4,16 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Http\Requests\SendMessageRequest;
+use App\Http\Requests\SendBulkMessageRequest;
 use App\Http\Resources\MessageResource;
 use App\Services\NotificationService;
 use App\Models\Message;
+use App\Jobs\DispatchMessage;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Carbon\Carbon;
 
 class NotificationController extends Controller
 {
@@ -187,6 +193,115 @@ class NotificationController extends Controller
             return response()->json([
                 'success' => false,
                 'error' => 'Failed to retrieve notifications',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Send bulk notifications (non-realtime)
+     */
+    public function sendBulk(SendBulkMessageRequest $request): JsonResponse
+    {
+        DB::beginTransaction();
+        
+        try {
+            $validated = $request->validated();
+            
+            $createdMessages = [];
+            $scheduledAt = isset($validated['scheduled_at']) ? Carbon::parse($validated['scheduled_at']) : now();
+            $rateLimit = $validated['rate_limit'] ?? null;
+            $priority = $validated['priority'] ?? 'normal';
+            
+            // Create message records for each recipient
+            foreach ($validated['messages'] as $index => $messageData) {
+                // Create message record (similar to send() method)
+                $message = Message::create([
+                    'channel' => $validated['channel'],
+                    'recipient' => $messageData['to'],
+                    'subject' => $messageData['subject'] ?? null,
+                    'message' => $messageData['message'],
+                    'status' => 'pending',
+                    'priority' => $priority,
+                    'scheduled_at' => $scheduledAt,
+                    'metadata' => array_merge(
+                        $messageData['metadata'] ?? [],
+                        $validated['metadata'] ?? []
+                    ),
+                    'tags' => $validated['tags'] ?? [],
+                    'webhook_url' => $validated['webhook_url'] ?? null,
+                    'api_key' => $validated['api_key'],
+                    'ip_address' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                ]);
+
+                // Calculate delay for rate limiting
+                $delay = 0;
+                if ($rateLimit && $index > 0) {
+                    $delay = ($index / $rateLimit) * 60; // Convert to seconds
+                }
+
+                // Prepare message data for the job (similar to send() method)
+                $jobMessageData = [
+                    'type' => $validated['channel'],
+                    'channel' => $validated['channel'],
+                    'to' => $messageData['to'],
+                    'subject' => $messageData['subject'] ?? null,
+                    'message' => $messageData['message'],
+                    'metadata' => array_merge(
+                        $messageData['metadata'] ?? [],
+                        $validated['metadata'] ?? []
+                    ),
+                    'provider' => $validated['provider'] ?? null,
+                    'sender_name' => $validated['sender_name'] ?? null,
+                    'whatsapp_type' => $validated['type'] ?? null, // WhatsApp provider type
+                    'webhook_url' => $validated['webhook_url'] ?? null,
+                ];
+
+                // Dispatch job to queue with delay (similar to how send() would queue it)
+                DispatchMessage::dispatch(
+                    $jobMessageData,
+                    $message->id,
+                    $priority
+                )->delay($scheduledAt->copy()->addSeconds($delay));
+
+                $createdMessages[] = $message;
+            }
+
+            DB::commit();
+
+            Log::info('Bulk messages created and queued', [
+                'channel' => $validated['channel'],
+                'total_count' => count($createdMessages),
+                'priority' => $priority,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Bulk messages queued successfully',
+                'total_count' => count($createdMessages),
+                'status' => 'pending',
+                'scheduled_at' => $scheduledAt,
+                'data' => [
+                    'channel' => $validated['channel'],
+                    'total_count' => count($createdMessages),
+                    'priority' => $priority,
+                    'scheduled_at' => $scheduledAt,
+                    'message_ids' => array_map(fn($msg) => $msg->id, $createdMessages),
+                ]
+            ], 202);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            
+            Log::error('Failed to create bulk messages', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'Failed to queue bulk messages',
                 'message' => $e->getMessage()
             ], 500);
         }

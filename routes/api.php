@@ -53,6 +53,9 @@ Route::post('/notifications/send', [NotificationController::class, 'send']);
 Route::get('/notifications/{id}', [NotificationController::class, 'status']);
 Route::get('/notifications', [NotificationController::class, 'index']);
 
+// Bulk Notification API (non-realtime)
+Route::post('/notifications/bulk/send', [NotificationController::class, 'sendBulk']);
+
 
 // Route::any('/notifications/{path?}', [NotificationController::class, 'index'])->where('path', '.*');
 

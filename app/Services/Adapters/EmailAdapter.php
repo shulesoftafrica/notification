@@ -268,7 +268,7 @@ class EmailAdapter implements ProviderAdapterInterface
         // Resend doesn't have a dedicated health endpoint, so we check API keys endpoint
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $apiKey
-        ])->timeout(10)->get('https://api.resend.com/api-keys');
+        ])->get('https://api.resend.com/api-keys');
 
         return $response->successful();
     }
@@ -282,7 +282,7 @@ class EmailAdapter implements ProviderAdapterInterface
 
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $apiKey
-        ])->timeout(10)->get('https://api.sendgrid.com/v3/user/profile');
+        ])->get('https://api.sendgrid.com/v3/user/profile');
 
         return $response->successful();
     }
@@ -296,7 +296,6 @@ class EmailAdapter implements ProviderAdapterInterface
         $domain = $this->config['domain'];
 
         $response = Http::withBasicAuth('api', $apiKey)
-            ->timeout(10)
             ->get("https://api.mailgun.net/v3/{$domain}");
 
         return $response->successful();

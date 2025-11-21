@@ -33,7 +33,7 @@ class DispatchMessage implements ShouldQueue
         $this->priority = $priority;
         
         // Set queue priority
-        $this->onQueue($this->getQueueName($priority));
+      //  $this->onQueue($this->getQueueName($priority));
     }
 
     /**
@@ -46,7 +46,7 @@ class DispatchMessage implements ShouldQueue
         try {
             Log::info('Processing message dispatch job', [
                 'message_id' => $this->messageId,
-                'type' => $this->messageData['type'],
+                'channel' => $this->messageData['channel'] ?? $this->messageData['type'],
                 'priority' => $this->priority,
                 'attempt' => $this->attempts()
             ]);
@@ -56,8 +56,20 @@ class DispatchMessage implements ShouldQueue
                 $this->updateMessageStatus('sending');
             }
 
-            // Dispatch the message
-            $result = $this->dispatchMessage($notificationService);
+            // Send the notification using unified service method (same as controller)
+            $result = $notificationService->send([
+                'channel' => $this->messageData['channel'] ?? $this->messageData['type'],
+                'to' => $this->messageData['to'],
+                'subject' => $this->messageData['subject'] ?? null,
+                'message' => $this->messageData['message'],
+                'template_id' => $this->messageData['template_id'] ?? null,
+                'priority' => $this->priority,
+                'metadata' => $this->messageData['metadata'] ?? [],
+                'provider' => $this->messageData['provider'] ?? null,
+                'sender_name' => $this->messageData['sender_name'] ?? null,
+                'type' => $this->messageData['whatsapp_type'] ?? $this->messageData['type'] ?? null,
+                'webhook_url' => $this->messageData['webhook_url'] ?? null,
+            ]);
 
             // Update message with results
             if ($this->messageId) {
@@ -66,54 +78,14 @@ class DispatchMessage implements ShouldQueue
 
             Log::info('Message dispatch completed successfully', [
                 'message_id' => $this->messageId,
-                'provider' => $result['provider'],
+                'provider' => $result['provider'] ?? null,
                 'external_id' => $result['message_id'] ?? null,
-                'duration_ms' => round((microtime(true) - $startTime) * 1000, 2)
+                'duration_ms' => (int) round((microtime(true) - $startTime) * 1000)
             ]);
 
         } catch (\Exception $e) {
             $this->handleDispatchFailure($e, $startTime);
             throw $e; // Re-throw to trigger retry mechanism
-        }
-    }
-
-    /**
-     * Dispatch the message using the notification service
-     */
-    protected function dispatchMessage(NotificationService $notificationService): array
-    {
-        $type = $this->messageData['type'];
-        $recipient = $this->messageData['to'];
-        $message = $this->messageData['message'];
-
-        switch ($type) {
-            case 'sms':
-                return $notificationService->sendSms(
-                    $recipient,
-                    $message,
-                    $this->messageData['metadata'] ?? [],
-                    $this->messageData['provider'] ?? null
-                );
-
-            case 'email':
-                return $notificationService->sendEmail(
-                    $recipient,
-                    $this->messageData['subject'],
-                    $message,
-                    $this->messageData['metadata'] ?? [],
-                    $this->messageData['provider'] ?? null
-                );
-
-            case 'whatsapp':
-                return $notificationService->sendWhatsApp(
-                    $recipient,
-                    $message,
-                    $this->messageData['metadata'] ?? [],
-                    $this->messageData['provider'] ?? null
-                );
-
-            default:
-                throw new \InvalidArgumentException("Unsupported message type: {$type}");
         }
     }
 
@@ -149,24 +121,25 @@ class DispatchMessage implements ShouldQueue
             return;
         }
 
-        $duration = round((microtime(true) - $startTime) * 1000, 2);
+        $duration = (int) round((microtime(true) - $startTime) * 1000);
 
         try {
+            // Update message with result (same as controller logic)
             $updateData = [
-                'status' => $result['success'] ? 'sent' : 'failed',
+                'status' => $result['status'] ?? 'failed',
                 'provider' => $result['provider'] ?? null,
                 'external_id' => $result['message_id'] ?? null,
-                'duration_ms' => $duration,
-                'sent_at' => $result['success'] ? now() : null,
-                'failed_at' => !$result['success'] ? now() : null,
+                'sent_at' => ($result['status'] ?? 'failed') === 'sent' ? now() : null,
+                'failed_at' => ($result['status'] ?? 'failed') === 'failed' ? now() : null,
                 'error_message' => $result['error'] ?? null,
+                'duration_ms' => $duration,
                 'updated_at' => now()
             ];
 
             Message::where('id', $this->messageId)->update($updateData);
 
             // Dispatch webhook if configured
-            if ($result['success'] && !empty($this->messageData['webhook_url'])) {
+            if (($result['status'] ?? 'failed') === 'sent' && !empty($this->messageData['webhook_url'])) {
                 DeliverWebhook::dispatch($this->messageId, 'sent', $result);
             }
 
@@ -183,11 +156,11 @@ class DispatchMessage implements ShouldQueue
      */
     protected function handleDispatchFailure(\Exception $e, float $startTime): void
     {
-        $duration = round((microtime(true) - $startTime) * 1000, 2);
+        $duration = (int) round((microtime(true) - $startTime) * 1000);
 
         Log::error('Message dispatch failed', [
             'message_id' => $this->messageId,
-            'type' => $this->messageData['type'],
+            'channel' => $this->messageData['channel'] ?? $this->messageData['type'] ?? 'unknown',
             'attempt' => $this->attempts(),
             'max_tries' => $this->tries,
             'error' => $e->getMessage(),
@@ -243,7 +216,7 @@ class DispatchMessage implements ShouldQueue
     {
         Log::error('Message dispatch job failed permanently', [
             'message_id' => $this->messageId,
-            'type' => $this->messageData['type'],
+            'channel' => $this->messageData['channel'] ?? $this->messageData['type'] ?? 'unknown',
             'attempts' => $this->attempts(),
             'error' => $exception->getMessage()
         ]);
