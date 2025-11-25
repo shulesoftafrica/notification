@@ -66,15 +66,14 @@ class EmailAdapter implements ProviderAdapterInterface
     {
         $apiKey = $this->config['api_key'];
         $fromEmail = $this->config['from_email'];
-        $fromName = $this->config['from_name'] ?? 'Notification Service';
+        $fromName = 'Shulesoft';
 
         $payload = [
-            'from' => $fromName ? "{$fromName} <{$fromEmail}>" : $fromEmail,
-            'to' => [$to],
+            'from' => 'Shulesoft <noreply@mail.shulesoft.co>',
+                     'to' => [$to],
             'subject' => $subject ?? 'Notification',
             'html' => $message,
         ];
-
         // Add tags from metadata if available
         if (!empty($metadata['tags'])) {
             $payload['tags'] = array_slice($metadata['tags'], 0, 10); // Resend allows max 10 tags
@@ -88,8 +87,8 @@ class EmailAdapter implements ProviderAdapterInterface
         // Add attachment if provided
         if ($attachment && $attachmentMetadata) {
             try {
-                $filePath = storage_path('app/public/' . $attachment);
-                
+                $filePath = storage_path('app/public' . $attachment);
+                // dd($filePath);
                 if (!file_exists($filePath)) {
                     throw new \Exception("Attachment file not found: {$attachment}");
                 }
@@ -189,7 +188,7 @@ class EmailAdapter implements ProviderAdapterInterface
         // Add attachment if provided
         if ($attachment && $attachmentMetadata) {
             try {
-                $filePath = storage_path('app/public/' . $attachment);
+                $filePath =  storage_path('app/public' . $attachment);
                
                 
                 if (!file_exists($filePath)) {
@@ -274,7 +273,7 @@ class EmailAdapter implements ProviderAdapterInterface
         
         if ($attachment && $attachmentMetadata) {
             try {
-                $filePath = storage_path('app/public/' . $attachment);
+                $filePath =  storage_path('app/public' . $attachment);
                 
                 if (!file_exists($filePath)) {
                     throw new \Exception("Attachment file not found: {$attachment}");

@@ -200,7 +200,7 @@ class WhatsAppAdapter implements ProviderAdapterInterface
         $mediaType = $this->getMediaTypeFromMime($mimeType);
         
         // Get public URL for the attachment
-        $mediaUrl = url('storage/' . $attachment);
+        $mediaUrl = url('storage' . $attachment);
         
         $payload = [
             'messaging_product' => 'whatsapp',
@@ -270,11 +270,11 @@ class WhatsAppAdapter implements ProviderAdapterInterface
         // Handle uploaded attachment
         if ($attachment && $attachmentMetadata) {
             $mimeType = $attachmentMetadata['mime_type'] ?? '';
-            $mediaUrl = url('storage/' . $attachment);
+            $mediaUrl = url('storage' . $attachment);
             
             
             if (str_starts_with($mimeType, 'image/')) {
-                $payload['image_url'] = $mediaUrl;
+                $payload['imageUrl'] = $mediaUrl;
             } elseif (str_starts_with($mimeType, 'video/')) {
                 $payload['video_url'] = $mediaUrl;
             } elseif (str_starts_with($mimeType, 'audio/')) {
