@@ -279,7 +279,7 @@ class NotificationController extends Controller
                     $filename = uniqid('attachment_', true) . '.' . $extension;
 
                     // Store file in storage/app/attachments
-                    $attachmentPath = 'attachments/' . $filename;
+                    $attachmentPath = '/attachments/' . $filename;
                     Storage::disk('public')->put($attachmentPath, $fileContent);
 
                     // Save attachment metadata
