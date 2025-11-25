@@ -271,6 +271,7 @@ class WhatsAppAdapter implements ProviderAdapterInterface
         if ($attachment && $attachmentMetadata) {
             $mimeType = $attachmentMetadata['mime_type'] ?? '';
             $mediaUrl = url('storage' . $attachment);
+            Log::info('Media URL generated', ['url' => $mediaUrl]);
             
             
             if (str_starts_with($mimeType, 'image/')) {
