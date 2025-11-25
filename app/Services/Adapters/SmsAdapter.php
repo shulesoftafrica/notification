@@ -266,7 +266,7 @@ class SmsAdapter implements ProviderAdapterInterface
         $response = Http::withHeaders([
             'Authorization' => 'Basic ' . base64_encode("{$apiKey}:{$secretKey}"),
             'Content-Type' => 'application/json'
-        ])->timeout(10)->get('https://apisms.beem.africa/public/v1/vendors/balance');
+        ])->get('https://apisms.beem.africa/public/v1/vendors/balance');
 
         return $response->successful();
     }
@@ -279,8 +279,7 @@ class SmsAdapter implements ProviderAdapterInterface
         $apiKey = $this->config['api_key'];
 
         // Check Termii balance endpoint for health
-        $response = Http::timeout(10)
-            ->get('https://v3.api.termii.com/api/get-balance', [
+        $response = Http::get('https://v3.api.termii.com/api/get-balance', [
                 'api_key' => $apiKey
             ]);
 
@@ -296,7 +295,6 @@ class SmsAdapter implements ProviderAdapterInterface
         $authToken = $this->config['auth_token'];
 
         $response = Http::withBasicAuth($accountSid, $authToken)
-            ->timeout(10)
             ->get("https://api.twilio.com/2010-04-01/Accounts/{$accountSid}.json");
 
         return $response->successful();

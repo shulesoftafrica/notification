@@ -39,6 +39,8 @@ class Message extends Model
         'cost_amount',
         'cost_currency',
         'duration_ms',
+        'attachment',
+        'attachment_metadata',
     ];
 
     protected $casts = [
@@ -54,6 +56,7 @@ class Message extends Model
         'tags' => 'array',
         'variables' => 'array',
         'options' => 'array',
+        'attachment_metadata' => 'array',
         'webhook_delivered' => 'boolean',
         'cost_amount' => 'decimal:4',
         'cost' => 'decimal:4',
