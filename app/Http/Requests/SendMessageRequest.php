@@ -42,6 +42,11 @@ class SendMessageRequest extends FormRequest
             'tags' => ['sometimes', 'array', 'max:10'],
             'tags.*' => ['string', 'max:50'],
             'provider' => ['sometimes', 'string', Rule::in(['twilio', 'whatsapp', 'sendgrid', 'mailgun', 'resend', 'beem', 'termii'])],
+            
+            // Attachment validation - base64 encoded data
+            'attachment' => ['nullable', 'string'], // Base64 encoded file content
+            'attachment_name' => ['required_with:attachment', 'string', 'max:255'], // Original filename
+            'attachment_type' => ['required_with:attachment', 'string', 'max:100'], // MIME type
         ];
     }
 
@@ -80,6 +85,11 @@ class SendMessageRequest extends FormRequest
             'sender_name.string' => 'Sender name must be a string',
             'sender_name.max' => 'Sender name must not exceed 50 characters',
             'provider.in' => 'Provider must be one of: twilio, whatsapp, sendgrid, mailgun',
+            'attachment.string' => 'Attachment must be base64 encoded string',
+            'attachment_name.required_with' => 'Attachment name is required when attachment is provided',
+            'attachment_name.max' => 'Attachment name must not exceed 255 characters',
+            'attachment_type.required_with' => 'Attachment type (MIME type) is required when attachment is provided',
+            'attachment_type.max' => 'Attachment type must not exceed 100 characters',
         ];
     }
 
@@ -158,7 +168,57 @@ class SendMessageRequest extends FormRequest
             if ($this->channel === 'sms' && strlen($this->message) > 1600) {
                 $validator->errors()->add('message', 'SMS message too long. Maximum 1600 characters allowed');
             }
+            
+            // Validate attachment for channel compatibility
+            if ($this->filled('attachment')) {
+                // SMS doesn't support attachments
+                if ($this->channel === 'sms') {
+                    $validator->errors()->add('attachment', 'Attachments are not supported for SMS channel');
+                }
+                
+                // Validate base64 encoding
+                if (!$this->isValidBase64($this->attachment)) {
+                    $validator->errors()->add('attachment', 'Attachment must be valid base64 encoded data');
+                }
+                
+                // Validate file size (decode and check)
+                $decodedSize = strlen(base64_decode($this->attachment, true));
+                $maxSize = 10 * 1024 * 1024; // 10MB in bytes
+                if ($decodedSize > $maxSize) {
+                    $validator->errors()->add('attachment', 'Attachment size must not exceed 10MB');
+                }
+                
+                // Validate file types for WhatsApp
+                if ($this->channel === 'whatsapp' && $this->filled('attachment_type')) {
+                    $allowedMimes = [
+                        'image/jpeg', 'image/png', 'image/gif', 
+                        'application/pdf', 
+                        'video/mp4', 'video/webm', 
+                        'audio/mpeg', 'audio/ogg', 'audio/wav'
+                    ];
+                    if (!in_array($this->attachment_type, $allowedMimes)) {
+                        $validator->errors()->add('attachment_type', 'WhatsApp only supports images, PDF, videos, and audio files');
+                    }
+                }
+            }
         });
+    }
+
+    /**
+     * Validate base64 encoding
+     */
+    protected function isValidBase64(?string $data): bool
+    {
+        if (empty($data)) {
+            return false;
+        }
+        //  remove characters
+        $data = preg_replace('/^data:\w+\/\w+;base64,/', '', $data);
+        // Try to decode
+        $decoded = base64_decode($data, true);
+        
+        // Check if decoding was successful and re-encoding gives same result
+        return $decoded !== false && base64_encode($decoded) === $data;
     }
 
     /**

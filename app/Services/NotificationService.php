@@ -94,6 +94,8 @@ class NotificationService
             'scheduled_at' => $data['scheduled_at'] ?? null,
             'webhook_url' => $data['webhook_url'] ?? null,
             'tags' => $data['tags'] ?? [],
+            'attachment' => $data['attachment'] ?? null,
+            'attachment_metadata' => $data['attachment_metadata'] ?? null,
             'metadata' => array_merge($data['metadata'] ?? [], [
                 'client_ip' => $data['client_ip'] ?? null,
                 'user_agent' => $data['user_agent'] ?? null,
@@ -101,6 +103,8 @@ class NotificationService
                 'original_id' => $data['original_id'] ?? null,
                 'sender_name' => $data['sender_name'] ?? null,
                 'type' => $data['type'] ?? null, // WhatsApp provider type
+                'attachment' => $data['attachment'] ?? null,
+                'attachment_metadata' => $data['attachment_metadata'] ?? null,
             ]),
         ];
     }

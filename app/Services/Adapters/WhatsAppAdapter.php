@@ -26,11 +26,14 @@ class WhatsAppAdapter implements ProviderAdapterInterface
         try {
             // Determine which WhatsApp service to use based on type in metadata or provider type
             $whatsappType = $metadata['type'] ?? $this->config['type'] ?? 'official';
+            // Check for attachment in metadata
+            $attachment = $metadata['attachment'] ?? null;
+            $attachmentMetadata = $metadata['attachment_metadata'] ?? null;
             
             if ($whatsappType === 'wasender' || $this->providerType === 'wasender') {
-                return $this->sendViaWasender($to, $message, $metadata, $startTime);
+                return $this->sendViaWasender($to, $message, $metadata, $startTime, $attachment, $attachmentMetadata);
             } else {
-                return $this->sendViaWhatsAppAPI($to, $message, $metadata, $startTime);
+                return $this->sendViaWhatsAppAPI($to, $message, $metadata, $startTime, $attachment, $attachmentMetadata);
             }
         } catch (\Exception $e) {
             Log::error('WhatsApp sending failed', [
@@ -51,7 +54,7 @@ class WhatsAppAdapter implements ProviderAdapterInterface
     /**
      * Send message via WhatsApp Business API
      */
-    protected function sendViaWhatsAppAPI(string $to, string $message, array $metadata, float $startTime): ProviderResponse
+    protected function sendViaWhatsAppAPI(string $to, string $message, array $metadata, float $startTime, ?string $attachment = null, ?array $attachmentMetadata = null): ProviderResponse
     {
         $accessToken = $this->config['access_token'];
         $phoneNumberId = $this->config['phone_number_id'];
@@ -75,8 +78,12 @@ class WhatsAppAdapter implements ProviderAdapterInterface
             $payload = $this->buildTemplateMessage($phoneNumber, $metadata);
         }
 
-        // Handle media messages
-        if (!empty($metadata['media_type']) && !empty($metadata['media_url'])) {
+        // Handle attachment if provided
+        if ($attachment && $attachmentMetadata) {
+            $payload = $this->buildMediaMessageFromAttachment($phoneNumber, $message, $attachment, $attachmentMetadata);
+        }
+        // Handle media messages from metadata (backward compatibility)
+        elseif (!empty($metadata['media_type']) && !empty($metadata['media_url'])) {
             $payload = $this->buildMediaMessage($phoneNumber, $message, $metadata);
         }
 
@@ -184,9 +191,65 @@ class WhatsAppAdapter implements ProviderAdapterInterface
     }
 
     /**
+     * Build media message payload from uploaded attachment
+     */
+    protected function buildMediaMessageFromAttachment(string $phoneNumber, string $caption, string $attachment, array $attachmentMetadata): array
+    {
+        // Determine media type from MIME type
+        $mimeType = $attachmentMetadata['mime_type'] ?? '';
+        $mediaType = $this->getMediaTypeFromMime($mimeType);
+        
+        // Get public URL for the attachment
+        $mediaUrl = url('storage/' . $attachment);
+        
+        $payload = [
+            'messaging_product' => 'whatsapp',
+            'to' => $phoneNumber,
+            'type' => $mediaType,
+            $mediaType => [
+                'link' => $mediaUrl
+            ]
+        ];
+
+        // Add caption for supported media types
+        if (in_array($mediaType, ['image', 'document', 'video']) && !empty($caption)) {
+            $payload[$mediaType]['caption'] = $caption;
+        }
+
+        // Add filename for documents
+        if ($mediaType === 'document') {
+            $payload[$mediaType]['filename'] = $attachmentMetadata['original_name'] ?? 'document';
+        }
+
+        Log::info('Built WhatsApp media message from attachment', [
+            'media_type' => $mediaType,
+            'attachment' => $attachment,
+            'url' => $mediaUrl
+        ]);
+
+        return $payload;
+    }
+
+    /**
+     * Get WhatsApp media type from MIME type
+     */
+    protected function getMediaTypeFromMime(string $mimeType): string
+    {
+        if (str_starts_with($mimeType, 'image/')) {
+            return 'image';
+        } elseif (str_starts_with($mimeType, 'video/')) {
+            return 'video';
+        } elseif (str_starts_with($mimeType, 'audio/')) {
+            return 'audio';
+        } else {
+            return 'document';
+        }
+    }
+
+    /**
      * Send message via Wasender API
      */
-    protected function sendViaWasender(string $to, string $message, array $metadata, float $startTime): ProviderResponse
+    protected function sendViaWasender(string $to, string $message, array $metadata, float $startTime, ?string $attachment = null, ?array $attachmentMetadata = null): ProviderResponse
     {
         $apiUrl = $this->config['api_url'];
         $apiKey = $this->config['api_key'];
@@ -204,8 +267,40 @@ class WhatsAppAdapter implements ProviderAdapterInterface
             'device_id' => $deviceId
         ];
 
-        // Handle media messages for Wasender
-        if (!empty($metadata['media_type']) && !empty($metadata['media_url'])) {
+        // Handle uploaded attachment
+        if ($attachment && $attachmentMetadata) {
+            $mimeType = $attachmentMetadata['mime_type'] ?? '';
+            $mediaUrl = url('storage/' . $attachment);
+            
+            
+            if (str_starts_with($mimeType, 'image/')) {
+                $payload['image_url'] = $mediaUrl;
+            } elseif (str_starts_with($mimeType, 'video/')) {
+                $payload['video_url'] = $mediaUrl;
+            } elseif (str_starts_with($mimeType, 'audio/')) {
+                $payload['audio_url'] = $mediaUrl;
+            } else {
+                $payload['document_url'] = $mediaUrl;
+            }
+            
+            // Caption can be added for non-audio files
+            if (!str_starts_with($mimeType, 'audio/')) {
+                $payload['caption'] = $message;
+            }
+            
+            // Remove text if media is present (for audio files)
+            if (str_starts_with($mimeType, 'audio/')) {
+                unset($payload['text']);
+            }
+            
+            Log::info('Sending WhatsApp message with attachment via WaSender', [
+                'attachment' => $attachment,
+                'media_url' => $mediaUrl,
+                'mime_type' => $mimeType
+            ]);
+        }
+        // Handle media messages from metadata (backward compatibility)
+        elseif (!empty($metadata['media_type']) && !empty($metadata['media_url'])) {
             $mediaType = $metadata['media_type'];
             switch ($mediaType) {
                 case 'image':
@@ -224,11 +319,13 @@ class WhatsAppAdapter implements ProviderAdapterInterface
             // Remove text if media is present
             unset($payload['text']);
         }
-
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $apiKey,
             'Content-Type' => 'application/json'
         ])
+        ->timeout(60)
+        ->connectTimeout(30)
+        ->retry(2, 1000)
         ->post("{$apiUrl}/api/send-message", $payload);
 
         $responseTime = $this->getResponseTime($startTime);

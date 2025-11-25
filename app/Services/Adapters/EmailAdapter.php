@@ -24,13 +24,17 @@ class EmailAdapter implements ProviderAdapterInterface
         $startTime = microtime(true);
 
         try {
+            // Extract attachment info from metadata
+            $attachment = $metadata['attachment'] ?? null;
+            $attachmentMetadata = $metadata['attachment_metadata'] ?? null;
+            
             switch ($this->provider) {
                 case 'resend':
-                    return $this->sendViaResend($to, $message, $subject, $metadata, $startTime);
+                    return $this->sendViaResend($to, $message, $subject, $metadata, $startTime, $attachment, $attachmentMetadata);
                 case 'sendgrid':
-                    return $this->sendViaSendGrid($to, $message, $subject, $metadata, $startTime);
+                    return $this->sendViaSendGrid($to, $message, $subject, $metadata, $startTime, $attachment, $attachmentMetadata);
                 case 'mailgun':
-                    return $this->sendViaMailgun($to, $message, $subject, $metadata, $startTime);
+                    return $this->sendViaMailgun($to, $message, $subject, $metadata, $startTime, $attachment, $attachmentMetadata);
                 default:
                     return ProviderResponse::failure(
                         $this->provider,
@@ -58,7 +62,7 @@ class EmailAdapter implements ProviderAdapterInterface
     /**
      * Send email via Resend
      */
-    protected function sendViaResend(string $to, string $message, ?string $subject, array $metadata, float $startTime): ProviderResponse
+    protected function sendViaResend(string $to, string $message, ?string $subject, array $metadata, float $startTime, ?string $attachment = null, ?array $attachmentMetadata = null): ProviderResponse
     {
         $apiKey = $this->config['api_key'];
         $fromEmail = $this->config['from_email'];
@@ -79,6 +83,35 @@ class EmailAdapter implements ProviderAdapterInterface
         // Add reply-to if specified
         if (!empty($metadata['reply_to'])) {
             $payload['reply_to'] = [$metadata['reply_to']];
+        }
+
+        // Add attachment if provided
+        if ($attachment && $attachmentMetadata) {
+            try {
+                $filePath = storage_path('app/public/' . $attachment);
+                
+                if (!file_exists($filePath)) {
+                    throw new \Exception("Attachment file not found: {$attachment}");
+                }
+                
+                $attachmentContent = base64_encode(file_get_contents($filePath));
+                
+                $payload['attachments'] = [[
+                    'filename' => $attachmentMetadata['original_name'] ?? 'attachment',
+                    'content' => $attachmentContent,
+                ]];
+                
+                Log::info('Adding attachment to Resend email', [
+                    'filename' => $attachmentMetadata['original_name'] ?? 'attachment',
+                    'size' => $attachmentMetadata['size'] ?? 0
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Failed to attach file to Resend email', [
+                    'error' => $e->getMessage(),
+                    'attachment' => $attachment
+                ]);
+                throw $e;
+            }
         }
 
         $response = Http::withHeaders([
@@ -120,7 +153,7 @@ class EmailAdapter implements ProviderAdapterInterface
     /**
      * Send email via SendGrid
      */
-    protected function sendViaSendGrid(string $to, string $message, ?string $subject, array $metadata, float $startTime): ProviderResponse
+    protected function sendViaSendGrid(string $to, string $message, ?string $subject, array $metadata, float $startTime, ?string $attachment = null, ?array $attachmentMetadata = null): ProviderResponse
     {
         $apiKey = $this->config['api_key'];
         $fromEmail = $this->config['from_email'];
@@ -153,6 +186,38 @@ class EmailAdapter implements ProviderAdapterInterface
             ];
         }
 
+        // Add attachment if provided
+        if ($attachment && $attachmentMetadata) {
+            try {
+                $filePath = storage_path('app/public/' . $attachment);
+               
+                
+                if (!file_exists($filePath)) {
+                    throw new \Exception("Attachment file not found: {$attachment}");
+                }
+                
+                $attachmentContent = base64_encode(file_get_contents($filePath));
+                
+                $payload['attachments'] = [[
+                    'content' => $attachmentContent,
+                    'type' => $attachmentMetadata['mime_type'] ?? 'application/octet-stream',
+                    'filename' => $attachmentMetadata['original_name'] ?? 'attachment',
+                    'disposition' => 'attachment',
+                ]];
+                
+                Log::info('Adding attachment to SendGrid email', [
+                    'filename' => $attachmentMetadata['original_name'] ?? 'attachment',
+                    'size' => $attachmentMetadata['size'] ?? 0
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Failed to attach file to SendGrid email', [
+                    'error' => $e->getMessage(),
+                    'attachment' => $attachment
+                ]);
+                throw $e;
+            }
+        }
+
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $apiKey,
             'Content-Type' => 'application/json'
@@ -183,7 +248,7 @@ class EmailAdapter implements ProviderAdapterInterface
     /**
      * Send email via Mailgun
      */
-    protected function sendViaMailgun(string $to, string $message, ?string $subject, array $metadata, float $startTime): ProviderResponse
+    protected function sendViaMailgun(string $to, string $message, ?string $subject, array $metadata, float $startTime, ?string $attachment = null, ?array $attachmentMetadata = null): ProviderResponse
     {
         $apiKey = $this->config['api_key'];
         $domain = $this->config['domain'];
@@ -204,9 +269,37 @@ class EmailAdapter implements ProviderAdapterInterface
             $payload['o:tracking-opens'] = 'yes';
         }
 
-        $response = Http::withBasicAuth('api', $apiKey)
-            ->asForm()
-            ->post("https://api.mailgun.net/v3/{$domain}/messages", $payload);
+        // Handle attachment - Mailgun uses multipart/form-data
+        $request = Http::withBasicAuth('api', $apiKey);
+        
+        if ($attachment && $attachmentMetadata) {
+            try {
+                $filePath = storage_path('app/public/' . $attachment);
+                
+                if (!file_exists($filePath)) {
+                    throw new \Exception("Attachment file not found: {$attachment}");
+                }
+                
+                $request = $request->attach(
+                    'attachment',
+                    file_get_contents($filePath),
+                    $attachmentMetadata['original_name'] ?? 'attachment'
+                );
+                
+                Log::info('Adding attachment to Mailgun email', [
+                    'filename' => $attachmentMetadata['original_name'] ?? 'attachment',
+                    'size' => $attachmentMetadata['size'] ?? 0
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Failed to attach file to Mailgun email', [
+                    'error' => $e->getMessage(),
+                    'attachment' => $attachment
+                ]);
+                throw $e;
+            }
+        }
+
+        $response = $request->asForm()->post("https://api.mailgun.net/v3/{$domain}/messages", $payload);
 
         $responseTime = $this->getResponseTime($startTime);
 

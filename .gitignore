@@ -24,3 +24,11 @@ Homestead.yaml
 Thumbs.db
 .htaccess
 index.php
+storage/framework/*
+storage/logs/*
+storage/app/public/*
+*.md
+*.sh
+*.py
+storage/public/*
+

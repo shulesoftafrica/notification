@@ -48,7 +48,8 @@ class DispatchMessage implements ShouldQueue
                 'message_id' => $this->messageId,
                 'channel' => $this->messageData['channel'] ?? $this->messageData['type'],
                 'priority' => $this->priority,
-                'attempt' => $this->attempts()
+                'attempt' => $this->attempts(),
+                'has_attachment' => !empty($this->messageData['attachment'])
             ]);
 
             // Update message status to sending if we have a message ID
@@ -69,6 +70,8 @@ class DispatchMessage implements ShouldQueue
                 'sender_name' => $this->messageData['sender_name'] ?? null,
                 'type' => $this->messageData['whatsapp_type'] ?? $this->messageData['type'] ?? null,
                 'webhook_url' => $this->messageData['webhook_url'] ?? null,
+                'attachment' => $this->messageData['attachment'] ?? null,
+                'attachment_metadata' => $this->messageData['attachment_metadata'] ?? null,
             ]);
 
             // Update message with results
