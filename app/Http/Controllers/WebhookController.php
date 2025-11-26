@@ -90,7 +90,7 @@ class WebhookController extends Controller
             ]);
 
             // Forward all requests to the specified endpoint
-            $forwardUrl = 'https://missoinvest.shulesoft.africa/api/webhook/wasender';
+            $forwardUrl = 'http://safarichat.africa/api/wasender/webhook/33991';                
             
             try {
                 $response = Http::withHeaders($request->headers->all())
