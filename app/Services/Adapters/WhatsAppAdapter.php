@@ -200,7 +200,7 @@ class WhatsAppAdapter implements ProviderAdapterInterface
         $mediaType = $this->getMediaTypeFromMime($mimeType);
         
         // Get public URL for the attachment
-        $mediaUrl = url('storage' . $attachment);
+        $mediaUrl = url('storage/app/public' . $attachment);
         
         $payload = [
             'messaging_product' => 'whatsapp',
@@ -270,7 +270,7 @@ class WhatsAppAdapter implements ProviderAdapterInterface
         // Handle uploaded attachment
         if ($attachment && $attachmentMetadata) {
             $mimeType = $attachmentMetadata['mime_type'] ?? '';
-            $mediaUrl = url('storage' . $attachment);
+            $mediaUrl = url('storage/app/public' . $attachment);
             Log::info('Media URL generated', ['url' => $mediaUrl]);
             
             
@@ -324,9 +324,6 @@ class WhatsAppAdapter implements ProviderAdapterInterface
             'Authorization' => 'Bearer ' . $apiKey,
             'Content-Type' => 'application/json'
         ])
-        ->timeout(60)
-        ->connectTimeout(30)
-        ->retry(2, 1000)
         ->post("{$apiUrl}/api/send-message", $payload);
 
         $responseTime = $this->getResponseTime($startTime);
