@@ -130,6 +130,7 @@ Route::prefix('wasender')->group(function () {
     Route::post('/sessions/create', [WaSenderSessionController::class, 'createSession']);
     Route::get('/sessions', [WaSenderSessionController::class, 'getSessions']);
     Route::get('/sessions/{id}', [WaSenderSessionController::class, 'getSession']);
+    Route::post('/sessions/{id}/connect', [WaSenderSessionController::class, 'connectSession']);
 });
 
 // User info route (for authenticated users)

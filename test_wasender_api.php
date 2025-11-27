@@ -95,6 +95,21 @@ if (isset($result['response']['success']) && $result['response']['success']) {
         $result = makeRequest('GET', $apiBaseUrl . "/sessions/$sessionId", $adminToken);
         echo "Response:\n";
         echo json_encode($result['response'], JSON_PRETTY_PRINT) . "\n\n";
+        
+        // Test: Connect session and get QR code
+        echo "Test 4: Connect Session & Get QR Code (ID: $sessionId)\n";
+        echo "--------------------------------------------------------\n";
+        $result = makeRequest('POST', $apiBaseUrl . "/sessions/$sessionId/connect", $adminToken);
+        echo "Response:\n";
+        echo json_encode($result['response'], JSON_PRETTY_PRINT) . "\n\n";
+        
+        if (isset($result['response']['success']) && $result['response']['success']) {
+            echo "✓ Session connected!\n";
+            if (isset($result['response']['data']['qr_code'])) {
+                echo "QR Code: " . substr($result['response']['data']['qr_code'], 0, 50) . "...\n";
+                echo "Status: " . ($result['response']['data']['status'] ?? 'N/A') . "\n\n";
+            }
+        }
     }
 } else {
     echo "✗ Failed to create session\n";

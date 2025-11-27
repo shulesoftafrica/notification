@@ -206,4 +206,116 @@ class WaSenderSessionController extends Controller
             ], 404);
         }
     }
+
+    /**
+     * Connect a WhatsApp session and get QR code
+     *
+     * @param int $id
+     * @return JsonResponse
+     */
+    public function connectSession(int $id): JsonResponse
+    {
+        try {
+            // Get session from database
+            $session = WaSenderSession::findOrFail($id);
+
+            if (!$session->wasender_session_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Session not created on WaSender API yet',
+                ], 400);
+            }
+
+            // Make cURL request to WaSender API
+            $apiUrl = 'https://www.wasenderapi.com/api/whatsapp-sessions/' . $session->wasender_session_id . '/connect';
+            $accessToken = config('services.wasender.access_token');
+
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $apiUrl);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'Authorization: Bearer ' . $accessToken,
+                'Content-Type: application/json',
+                'Accept: application/json',
+            ]);
+
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlError = curl_error($ch);
+            curl_close($ch);
+
+            // Handle cURL errors
+            if ($curlError) {
+                Log::error('WaSender API cURL Error on connect', [
+                    'error' => $curlError,
+                    'url' => $apiUrl,
+                    'session_id' => $id,
+                ]);
+                throw new Exception('Failed to connect to WaSender API: ' . $curlError);
+            }
+
+            // Decode response
+            $apiResponse = json_decode($response, true);
+
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                Log::error('WaSender API Invalid JSON on connect', [
+                    'response' => $response,
+                    'json_error' => json_last_error_msg(),
+                    'session_id' => $id,
+                ]);
+                throw new Exception('Invalid response from WaSender API');
+            }
+
+            // Check for API errors
+            if ($httpCode >= 400) {
+                Log::error('WaSender API Error on connect', [
+                    'http_code' => $httpCode,
+                    'response' => $apiResponse,
+                    'session_id' => $id,
+                ]);
+                throw new Exception(
+                    $apiResponse['message'] ?? 'WaSender API returned error: ' . $httpCode,
+                    $httpCode
+                );
+            }
+
+            // Update session status if provided in response
+            if (isset($apiResponse['success']) && $apiResponse['success'] && isset($apiResponse['data']['status'])) {
+                $session->update([
+                    'status' => $apiResponse['data']['status'],
+                ]);
+
+                Log::info('WaSender session connect initiated', [
+                    'local_id' => $session->id,
+                    'wasender_id' => $session->wasender_session_id,
+                    'status' => $apiResponse['data']['status'],
+                ]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Session connect request successful',
+                'data' => [
+                    'session' => $session->fresh(),
+                    'qr_code' => $apiResponse['data']['qrCode'] ?? null,
+                    'status' => $apiResponse['data']['status'] ?? null,
+                ],
+                'api_response' => $apiResponse,
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('Error connecting WaSender session', [
+                'session_id' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to connect WhatsApp session',
+                'error' => $e->getMessage(),
+            ], $e->getCode() ?: 500);
+        }
+    }
 }
