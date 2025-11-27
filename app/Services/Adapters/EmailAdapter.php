@@ -87,7 +87,7 @@ class EmailAdapter implements ProviderAdapterInterface
         // Add attachment if provided
         if ($attachment && $attachmentMetadata) {
             try {
-                $filePath = storage_path('app/public' . $attachment);
+                $filePath = public_path($attachment);
                 // dd($filePath);
                 if (!file_exists($filePath)) {
                     throw new \Exception("Attachment file not found: {$attachment}");
@@ -188,7 +188,7 @@ class EmailAdapter implements ProviderAdapterInterface
         // Add attachment if provided
         if ($attachment && $attachmentMetadata) {
             try {
-                $filePath =  storage_path('app/public' . $attachment);
+                $filePath =  public_path($attachment);
                
                 
                 if (!file_exists($filePath)) {
@@ -273,7 +273,7 @@ class EmailAdapter implements ProviderAdapterInterface
         
         if ($attachment && $attachmentMetadata) {
             try {
-                $filePath =  storage_path('app/public' . $attachment);
+                $filePath =  public_path($attachment);
                 
                 if (!file_exists($filePath)) {
                     throw new \Exception("Attachment file not found: {$attachment}");
