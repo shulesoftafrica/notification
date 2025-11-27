@@ -277,10 +277,10 @@ class NotificationController extends Controller
                     // Generate unique filename
                     $extension = $this->getExtensionFromMimeType($validated['attachment_type']);
                     $filename = uniqid('attachment_', true) . '.' . $extension;
+                    $attachmentPath = 'attachments/' . $filename;
 
-                    // Store file in storage/app/attachments
-                    $attachmentPath = '/attachments/' . $filename;
-                    Storage::disk('public')->put($attachmentPath, $fileContent);
+                    Storage::disk('public_root')->put($attachmentPath, $fileContent);
+
 
                     // Save attachment metadata
                     $attachmentMetadata = [
@@ -296,7 +296,7 @@ class NotificationController extends Controller
                     ]);
                 } catch (\Exception $e) {
                     DB::rollBack();
-                    
+
                     Log::error('Failed to process base64 attachment for bulk messages', [
                         'error' => $e->getMessage(),
                         'channel' => $validated['channel']
