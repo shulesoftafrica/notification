@@ -32,6 +32,11 @@ function makeRequest($method, $url, $token, $data = null) {
     if ($method === 'POST' && $data) {
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+    } elseif ($method === 'PUT' && $data) {
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+    } elseif ($method === 'DELETE') {
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'DELETE');
     }
     
     $response = curl_exec($ch);
@@ -109,6 +114,62 @@ if (isset($result['response']['success']) && $result['response']['success']) {
                 echo "QR Code: " . substr($result['response']['data']['qr_code'], 0, 50) . "...\n";
                 echo "Status: " . ($result['response']['data']['status'] ?? 'N/A') . "\n\n";
             }
+        }
+        
+        // Test: Check session status
+        echo "Test 5: Check Session Status (ID: $sessionId)\n";
+        echo "----------------------------------------------\n";
+        $result = makeRequest('GET', $apiBaseUrl . "/sessions/$sessionId/status", $adminToken);
+        echo "Response:\n";
+        echo json_encode($result['response'], JSON_PRETTY_PRINT) . "\n\n";
+        
+        if (isset($result['response']['success']) && $result['response']['success']) {
+            echo "✓ Status retrieved!\n";
+            echo "Current Status: " . ($result['response']['data']['status'] ?? 'N/A') . "\n\n";
+        }
+        
+        // Test: Update session
+        echo "Test 6: Update Session (ID: $sessionId)\n";
+        echo "----------------------------------------\n";
+        $updateData = [
+            'name' => 'Updated Business WhatsApp',
+            'webhook_enabled' => false,
+        ];
+        $result = makeRequest('PUT', $apiBaseUrl . "/sessions/$sessionId", $adminToken, $updateData);
+        echo "Response:\n";
+        echo json_encode($result['response'], JSON_PRETTY_PRINT) . "\n\n";
+        
+        if (isset($result['response']['success']) && $result['response']['success']) {
+            echo "✓ Session updated!\n";
+            echo "New Name: " . ($result['response']['data']['name'] ?? 'N/A') . "\n";
+            echo "Webhook Enabled: " . (($result['response']['data']['webhook_enabled'] ?? false) ? 'Yes' : 'No') . "\n\n";
+        }
+        
+        // Test: Get QR code
+        echo "Test 7: Get QR Code (ID: $sessionId)\n";
+        echo "-------------------------------------\n";
+        $result = makeRequest('GET', $apiBaseUrl . "/sessions/$sessionId/qrcode", $adminToken);
+        echo "Response:\n";
+        echo json_encode($result['response'], JSON_PRETTY_PRINT) . "\n\n";
+        
+        if (isset($result['response']['success']) && $result['response']['success']) {
+            echo "✓ QR code retrieved!\n";
+            if (isset($result['response']['data']['qr_code'])) {
+                echo "QR Code: " . substr($result['response']['data']['qr_code'], 0, 50) . "...\n\n";
+            }
+        }
+        
+        // Test: Delete session
+        echo "Test 8: Delete Session (ID: $sessionId)\n";
+        echo "----------------------------------------\n";
+        $result = makeRequest('DELETE', $apiBaseUrl . "/sessions/$sessionId", $adminToken);
+        echo "Response:\n";
+        echo json_encode($result['response'], JSON_PRETTY_PRINT) . "\n\n";
+        
+        if (isset($result['response']['success']) && $result['response']['success']) {
+            echo "✓ Session deleted!\n";
+            echo "Deleted Local ID: " . ($result['response']['data']['deleted_local_id'] ?? 'N/A') . "\n";
+            echo "Deleted WaSender ID: " . ($result['response']['data']['deleted_wasender_id'] ?? 'N/A') . "\n\n";
         }
     }
 } else {

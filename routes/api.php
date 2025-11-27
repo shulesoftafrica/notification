@@ -131,6 +131,10 @@ Route::prefix('wasender')->group(function () {
     Route::get('/sessions', [WaSenderSessionController::class, 'getSessions']);
     Route::get('/sessions/{id}', [WaSenderSessionController::class, 'getSession']);
     Route::post('/sessions/{id}/connect', [WaSenderSessionController::class, 'connectSession']);
+    Route::get('/sessions/{id}/status', [WaSenderSessionController::class, 'checkStatus']);
+    Route::put('/sessions/{id}', [WaSenderSessionController::class, 'updateSession']);
+    Route::get('/sessions/{id}/qrcode', [WaSenderSessionController::class, 'getQRCode']);
+    Route::delete('/sessions/{id}', [WaSenderSessionController::class, 'deleteSession']);
 });
 
 // User info route (for authenticated users)
