@@ -90,17 +90,33 @@ class WebhookController extends Controller
             ]);
 
             // Forward all requests to the specified endpoint
-            $forwardUrl = 'http://safarichat.africa/api/wasender/webhook/33991';                
+            $forwardUrl = 'https://safarichat.africa/api/wasender/webhook/33991';                
             
-            try {
-                $response = Http::withHeaders($request->headers->all())
-                    ->withBody($request->getContent(), $request->header('Content-Type', 'application/json'))
-                    ->send($request->method(), $forwardUrl);
+	    try {
+
+
+
+
+
+
+
+		 $webhookUrl = 'https://safarichat.africa/api/wasender/webhook/33991';
+$data = $request->all();
+
+$ch = curl_init($webhookUrl);
+curl_setopt($ch, CURLOPT_POST, 1);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+$response = curl_exec($ch);
+curl_close($ch);  
+
+
+                  
                 
                 Log::info('WhatsApp webhook forwarded successfully', [
                     'forward_url' => $forwardUrl,
-                    'forward_status' => $response->status(),
-                    'forward_response' => $response->body()
+                    'forward_response' => $response
                 ]);
                 
             } catch (\Exception $forwardError) {
