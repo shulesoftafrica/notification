@@ -1,0 +1,7 @@
+{
+  "description": "Get QR code for WhatsApp session",
+  "method": "GET",
+  "endpoint": "/api/wasender/sessions/{id}/qrcode",
+  "example_url": "/api/wasender/sessions/1/qrcode",
+  "note": "No request body needed - returns QR code string for scanning"
+}

@@ -154,7 +154,7 @@ class WaSenderSessionController extends Controller
                 'success' => false,
                 'message' => 'Failed to create WhatsApp session',
                 'error' => $e->getMessage(),
-            ], $e->getCode() ?: 500);
+            ], 500);
         }
     }
 
@@ -315,7 +315,7 @@ class WaSenderSessionController extends Controller
                 'success' => false,
                 'message' => 'Failed to connect WhatsApp session',
                 'error' => $e->getMessage(),
-            ], $e->getCode() ?: 500);
+            ],500);
         }
     }
 
@@ -424,7 +424,7 @@ class WaSenderSessionController extends Controller
                 'success' => false,
                 'message' => 'Failed to check session status',
                 'error' => $e->getMessage(),
-            ], $e->getCode() ?: 500);
+            ],500);
         }
     }
 
@@ -597,7 +597,7 @@ class WaSenderSessionController extends Controller
                 'success' => false,
                 'message' => 'Failed to update WhatsApp session',
                 'error' => $e->getMessage(),
-            ], $e->getCode() ?: 500);
+            ], 500);
         }
     }
 
@@ -698,7 +698,7 @@ class WaSenderSessionController extends Controller
                 'success' => false,
                 'message' => 'Failed to fetch QR code',
                 'error' => $e->getMessage(),
-            ], $e->getCode() ?: 500);
+            ], 500);
         }
     }
 
@@ -807,7 +807,7 @@ class WaSenderSessionController extends Controller
                 'success' => false,
                 'message' => 'Failed to delete WhatsApp session',
                 'error' => $e->getMessage(),
-            ], $e->getCode() ?: 500);
+            ], 500);
         }
     }
 }

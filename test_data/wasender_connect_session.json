@@ -1,0 +1,7 @@
+{
+  "description": "Connect a WhatsApp session and get QR code",
+  "method": "POST",
+  "endpoint": "/api/wasender/sessions/{id}/connect",
+  "example_url": "/api/wasender/sessions/1/connect",
+  "note": "No request body needed - this triggers connection and returns QR code"
+}

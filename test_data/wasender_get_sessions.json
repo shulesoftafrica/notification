@@ -1,0 +1,6 @@
+{
+  "description": "Get all sessions from database",
+  "method": "GET",
+  "endpoint": "/api/wasender/sessions",
+  "note": "No request body needed - this is a GET request"
+}
