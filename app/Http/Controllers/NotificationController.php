@@ -8,6 +8,8 @@ use App\Http\Requests\SendBulkMessageRequest;
 use App\Http\Resources\MessageResource;
 use App\Services\NotificationService;
 use App\Models\Message;
+use App\Models\WaSenderSession;
+use App\Models\SmsSession;
 use App\Jobs\DispatchMessage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -85,6 +87,32 @@ class NotificationController extends Controller
                 }
             }
 
+            // Handle WaSender API key validation for WhatsApp/WaSender combination
+            $wasenderApiKey = null;
+            if ($this->isWasenderWhatsApp($validated)) {
+                $wasenderApiKey = $this->getWasenderApiKey($validated['schema_name']);
+                if (!$wasenderApiKey) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'WaSender session not found or API key unavailable',
+                        'message' => 'No active WaSender session found for schema: ' . $validated['schema_name']
+                    ], 400);
+                }
+            }
+
+            // Handle SMS sender_name validation for SMS channel
+            $smsSenderName = null;
+            if ($validated['channel'] === 'sms') {
+                $smsSenderName = $this->getSmsSenderName($validated['schema_name']);
+                if ($smsSenderName === false) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'SMS session not found',
+                        'message' => 'No SMS session found for schema: ' . $validated['schema_name']
+                    ], 400);
+                }
+            }
+
             // Create message record
             $message = Message::create([
                 'channel' => $validated['channel'],
@@ -94,7 +122,11 @@ class NotificationController extends Controller
                 'status' => 'pending',
                 'priority' => $validated['priority'] ?? 'normal',
                 'scheduled_at' => $validated['scheduled_at'] ?? null,
-                'metadata' => $validated['metadata'] ?? [],
+                'metadata' => array_merge($validated['metadata'] ?? [], [
+                    'schema_name' => $validated['schema_name'],
+                    'wasender_api_key' => $wasenderApiKey, // Pass WaSender API key in metadata
+                    'sms_sender_name' => $smsSenderName, // Pass SMS sender name in metadata
+                ]),
                 'tags' => $validated['tags'] ?? [],
                 'webhook_url' => $validated['webhook_url'] ?? null,
                 'api_key' => $validated['api_key'],
@@ -112,7 +144,11 @@ class NotificationController extends Controller
                 'message' => $validated['message'],
                 'template_id' => $validated['template_id'] ?? null,
                 'priority' => $validated['priority'] ?? 'normal',
-                'metadata' => $validated['metadata'] ?? [],
+                'metadata' => array_merge($validated['metadata'] ?? [], [
+                    'schema_name' => $validated['schema_name'],
+                    'wasender_api_key' => $wasenderApiKey, // Pass WaSender API key in metadata
+                    'sms_sender_name' => $smsSenderName, // Pass SMS sender name in metadata
+                ]),
                 'provider' => $validated['provider'] ?? null,
                 'sender_name' => $validated['sender_name'] ?? null,
                 'type' => $validated['type'] ?? null, // WhatsApp provider type
@@ -310,6 +346,34 @@ class NotificationController extends Controller
                 }
             }
 
+            // Handle WaSender API key validation for WhatsApp/WaSender combination
+            $wasenderApiKey = null;
+            if ($this->isWasenderWhatsApp($validated)) {
+                $wasenderApiKey = $this->getWasenderApiKey($validated['schema_name']);
+                if (!$wasenderApiKey) {
+                    DB::rollBack();
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'WaSender session not found or API key unavailable',
+                        'message' => 'No active WaSender session found for schema: ' . $validated['schema_name']
+                    ], 400);
+                }
+            }
+
+            // Handle SMS sender_name validation for SMS channel
+            $smsSenderName = null;
+            if ($validated['channel'] === 'sms') {
+                $smsSenderName = $this->getSmsSenderName($validated['schema_name']);
+                if ($smsSenderName === false) {
+                    DB::rollBack();
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'SMS session not found',
+                        'message' => 'No SMS session found for schema: ' . $validated['schema_name']
+                    ], 400);
+                }
+            }
+
             $createdMessages = [];
             $scheduledAt = isset($validated['scheduled_at']) ? Carbon::parse($validated['scheduled_at']) : now();
             $rateLimit = $validated['rate_limit'] ?? null;
@@ -328,7 +392,12 @@ class NotificationController extends Controller
                     'scheduled_at' => $scheduledAt,
                     'metadata' => array_merge(
                         $messageData['metadata'] ?? [],
-                        $validated['metadata'] ?? []
+                        $validated['metadata'] ?? [],
+                        [
+                            'schema_name' => $validated['schema_name'],
+                            'wasender_api_key' => $wasenderApiKey, // Pass WaSender API key in metadata
+                            'sms_sender_name' => $smsSenderName, // Pass SMS sender name in metadata
+                        ]
                     ),
                     'tags' => $validated['tags'] ?? [],
                     'webhook_url' => $validated['webhook_url'] ?? null,
@@ -354,7 +423,12 @@ class NotificationController extends Controller
                     'message' => $messageData['message'],
                     'metadata' => array_merge(
                         $messageData['metadata'] ?? [],
-                        $validated['metadata'] ?? []
+                        $validated['metadata'] ?? [],
+                        [
+                            'schema_name' => $validated['schema_name'],
+                            'wasender_api_key' => $wasenderApiKey, // Pass WaSender API key in metadata
+                            'sms_sender_name' => $smsSenderName, // Pass SMS sender name in metadata
+                        ]
                     ),
                     'provider' => $validated['provider'] ?? null,
                     'sender_name' => $validated['sender_name'] ?? null,
@@ -447,5 +521,68 @@ class NotificationController extends Controller
         ];
 
         return $mimeMap[$mimeType] ?? 'bin';
+    }
+
+    /**
+     * Check if the request is for WhatsApp with WaSender provider
+     */
+    protected function isWasenderWhatsApp(array $validated): bool
+    {
+        return $validated['channel'] === 'whatsapp' && 
+               (($validated['provider'] ?? null) === 'wasender' || 
+                ($validated['type'] ?? null) === 'wasender');
+    }
+
+    /**
+     * Get WaSender API key for the given schema
+     */
+    protected function getWasenderApiKey(string $schemaName): ?string
+    {
+        try {
+            $session = WaSenderSession::where('schema_name', $schemaName)
+                ->where('status', 'connected')
+                ->whereNotNull('api_key')
+                ->first();
+
+            return $session?->api_key;
+        } catch (\Exception $e) {
+            Log::error('Failed to fetch WaSender API key', [
+                'schema_name' => $schemaName,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Get SMS sender name for the given schema
+     * Returns string (sender name), null (use default "SHULESOFT"), or false (session not found)
+     */
+    protected function getSmsSenderName(string $schemaName): string|null|false
+    {
+        try {
+            $session = SmsSession::where('schema_name', $schemaName)->first();
+
+            if (!$session) {
+                Log::error('SMS session not found', [
+                    'schema_name' => $schemaName
+                ]);
+                return false; // No session found
+            }
+
+            // If sender_name is null, return null to use default "SHULESOFT"
+            if ($session->sender_name === null) {
+                return null;
+            }
+
+            // Return the configured sender name
+            return $session->sender_name;
+        } catch (\Exception $e) {
+            Log::error('Failed to fetch SMS sender name', [
+                'schema_name' => $schemaName,
+                'error' => $e->getMessage()
+            ]);
+            return false;
+        }
     }
 }
