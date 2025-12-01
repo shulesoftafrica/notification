@@ -1,0 +1,566 @@
+# Notification & WaSender API Documentation
+
+This document provides comprehensive API documentation for the Notification system and WaSender WhatsApp session management.
+
+## Base URL
+```
+https://your-domain.com/api
+```
+
+## Authentication
+- **Notification API**: Uses `api.auth` middleware with API key authentication
+- **WaSender API**: Public access (no authentication required)
+
+---
+
+## NOTIFICATION API
+
+### 1. Send Single Notification
+
+**Endpoint:** `POST /notifications/send`
+**Method:** POST
+**Authentication:** Required (API Key)
+
+#### Request Body
+```json
+{
+  "schema_name": "client_tenant_demo",
+  "channel": "whatsapp|sms|email",
+  "to": "+1234567890",
+  "message": "Your notification message",
+  "subject": "Email Subject (required for email)",
+  "provider": "wasender|beem|termii|twilio|sendgrid|mailgun|resend",
+  "type": "wasender|official",
+  "priority": "low|normal|high|urgent",
+  "scheduled_at": "2025-12-01T10:00:00Z",
+  "template_id": "template_123",
+  "template_data": {
+    "name": "John",
+    "code": "12345"
+  },
+  "metadata": {
+    "custom_field": "value"
+  },
+  "webhook_url": "https://your-domain.com/webhook",
+  "tags": ["marketing", "user_onboarding"],
+  "attachment": "base64_encoded_file_content",
+  "attachment_name": "document.pdf",
+  "attachment_type": "application/pdf"
+}
+```
+
+#### Response (Success)
+```json
+{
+  "success": true,
+  "message_id": 123,
+  "external_id": "ext_msg_456",
+  "status": "sent",
+  "provider": "wasender",
+  "data": {
+    "id": 123,
+    "channel": "whatsapp",
+    "recipient": "+1234567890",
+    "message": "Your notification message",
+    "status": "sent",
+    "provider": "wasender",
+    "sent_at": "2025-12-01T10:30:45Z",
+    "created_at": "2025-12-01T10:30:44Z"
+  }
+}
+```
+
+#### Response (Error)
+```json
+{
+  "success": false,
+  "error": "WaSender session not found or API key unavailable",
+  "message": "No active WaSender session found for schema: client_tenant_demo",
+  "message_id": 123,
+  "data": {
+    "id": 123,
+    "status": "failed",
+    "error_message": "WaSender session not found"
+  }
+}
+```
+
+### 2. Send Bulk Notifications
+
+**Endpoint:** `POST /notifications/bulk/send`
+**Method:** POST
+**Authentication:** Required (API Key)
+
+#### Request Body
+```json
+{
+  "schema_name": "client_tenant_demo",
+  "channel": "whatsapp|sms|email",
+  "provider": "wasender|beem|termii|twilio",
+  "type": "wasender|official",
+  "priority": "low|normal|high|urgent",
+  "scheduled_at": "2025-12-01T10:00:00Z",
+  "rate_limit": 60,
+  "batch_size": 50,
+  "webhook_url": "https://your-domain.com/webhook",
+  "metadata": {
+    "campaign": "summer_sale"
+  },
+  "tags": ["bulk", "marketing"],
+  "attachment": "base64_encoded_file_content",
+  "attachment_name": "promo.jpg",
+  "attachment_type": "image/jpeg",
+  "messages": [
+    {
+      "to": "+1234567890",
+      "message": "Hello John, check out our summer sale!",
+      "subject": "Summer Sale Alert",
+      "metadata": {
+        "customer_id": "cust_123"
+      }
+    },
+    {
+      "to": "+1987654321",
+      "message": "Hi Jane, don't miss our summer deals!",
+      "subject": "Summer Sale Alert",
+      "metadata": {
+        "customer_id": "cust_456"
+      }
+    }
+  ]
+}
+```
+
+#### Response (Success)
+```json
+{
+  "success": true,
+  "message": "Bulk messages queued successfully",
+  "total_count": 2,
+  "status": "pending",
+  "scheduled_at": "2025-12-01T10:00:00Z",
+  "data": {
+    "channel": "whatsapp",
+    "total_count": 2,
+    "priority": "normal",
+    "scheduled_at": "2025-12-01T10:00:00Z",
+    "message_ids": [124, 125]
+  }
+}
+```
+
+### 3. Get Notification Status
+
+**Endpoint:** `GET /notifications/{id}`
+**Method:** GET
+**Authentication:** Required (API Key)
+
+#### Response (Success)
+```json
+{
+  "success": true,
+  "data": {
+    "id": 123,
+    "channel": "whatsapp",
+    "recipient": "+1234567890",
+    "message": "Your notification message",
+    "status": "delivered",
+    "provider": "wasender",
+    "external_id": "ext_msg_456",
+    "sent_at": "2025-12-01T10:30:45Z",
+    "delivered_at": "2025-12-01T10:31:02Z",
+    "created_at": "2025-12-01T10:30:44Z",
+    "metadata": {
+      "schema_name": "client_tenant_demo"
+    },
+    "tags": ["marketing"]
+  }
+}
+```
+
+### 4. List Notifications
+
+**Endpoint:** `GET /notifications`
+**Method:** GET
+**Authentication:** Required (API Key)
+**Query Parameters:**
+- `channel`: Filter by channel (whatsapp|sms|email)
+- `status`: Filter by status (pending|sent|delivered|failed)
+- `from`: Start date (Y-m-d H:i:s)
+- `to`: End date (Y-m-d H:i:s)
+- `recipient`: Search by recipient
+- `per_page`: Results per page (max 100)
+
+#### Response (Success)
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 123,
+      "channel": "whatsapp",
+      "recipient": "+1234567890",
+      "status": "delivered",
+      "provider": "wasender",
+      "sent_at": "2025-12-01T10:30:45Z",
+      "created_at": "2025-12-01T10:30:44Z"
+    }
+  ],
+  "meta": {
+    "current_page": 1,
+    "per_page": 20,
+    "total": 1,
+    "last_page": 1
+  }
+}
+```
+
+---
+
+## WASENDER SESSION MANAGEMENT API
+
+### 1. Create WaSender Session
+
+**Endpoint:** `POST /wasender/sessions/create`
+**Method:** POST
+**Authentication:** None
+
+#### Request Body
+```json
+{
+  "schema_name": "client_tenant_demo",
+  "name": "Demo Business WhatsApp",
+  "phone_number": "+1234567890",
+  "account_protection": true,
+  "log_messages": true,
+  "read_incoming_messages": false,
+  "webhook_url": "https://webhook.example.com/wasender",
+  "webhook_enabled": true,
+  "webhook_events": [
+    "messages.received",
+    "session.status",
+    "messages.update"
+  ]
+}
+```
+
+#### Response (Success)
+```json
+{
+  "success": true,
+  "message": "WhatsApp session created successfully",
+  "data": {
+    "id": 1,
+    "schema_name": "client_tenant_demo",
+    "wasender_session_id": "ws_abc123",
+    "name": "Demo Business WhatsApp",
+    "phone_number": "+1234567890",
+    "status": "disconnected",
+    "account_protection": true,
+    "log_messages": true,
+    "read_incoming_messages": false,
+    "webhook_url": "https://webhook.example.com/wasender",
+    "webhook_enabled": true,
+    "webhook_events": ["messages.received", "session.status", "messages.update"],
+    "api_key": "wa_key_xyz789",
+    "created_at": "2025-12-01T10:00:00Z",
+    "updated_at": "2025-12-01T10:00:00Z"
+  },
+  "api_response": {
+    "success": true,
+    "data": {
+      "id": "ws_abc123",
+      "name": "Demo Business WhatsApp",
+      "status": "disconnected"
+    }
+  }
+}
+```
+
+### 2. Get All Sessions
+
+**Endpoint:** `GET /wasender/sessions`
+**Method:** GET
+**Authentication:** None
+
+#### Response (Success)
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "schema_name": "client_tenant_demo",
+      "wasender_session_id": "ws_abc123",
+      "name": "Demo Business WhatsApp",
+      "phone_number": "+1234567890",
+      "status": "connected",
+      "created_at": "2025-12-01T10:00:00Z",
+      "updated_at": "2025-12-01T10:15:00Z"
+    }
+  ]
+}
+```
+
+### 3. Get Single Session
+
+**Endpoint:** `GET /wasender/sessions/{id}`
+**Method:** GET
+**Authentication:** None
+
+#### Response (Success)
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "schema_name": "client_tenant_demo",
+    "wasender_session_id": "ws_abc123",
+    "name": "Demo Business WhatsApp",
+    "phone_number": "+1234567890",
+    "status": "connected",
+    "account_protection": true,
+    "log_messages": true,
+    "read_incoming_messages": false,
+    "webhook_url": "https://webhook.example.com/wasender",
+    "webhook_enabled": true,
+    "webhook_events": ["messages.received", "session.status", "messages.update"],
+    "created_at": "2025-12-01T10:00:00Z",
+    "updated_at": "2025-12-01T10:15:00Z"
+  }
+}
+```
+
+### 4. Connect Session & Get QR Code
+
+**Endpoint:** `POST /wasender/sessions/{id}/connect`
+**Method:** POST
+**Authentication:** None
+
+#### Response (Success)
+```json
+{
+  "success": true,
+  "message": "Session connect request successful",
+  "data": {
+    "session": {
+      "id": 1,
+      "status": "connecting",
+      "updated_at": "2025-12-01T10:20:00Z"
+    },
+    "qr_code": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
+    "status": "connecting"
+  },
+  "api_response": {
+    "success": true,
+    "data": {
+      "status": "connecting",
+      "qrCode": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
+    }
+  }
+}
+```
+
+### 5. Check Session Status
+
+**Endpoint:** `GET /wasender/sessions/{id}/status`
+**Method:** GET
+**Authentication:** None
+
+#### Response (Success)
+```json
+{
+  "success": true,
+  "message": "Session status retrieved successfully",
+  "data": {
+    "session": {
+      "id": 1,
+      "status": "connected",
+      "updated_at": "2025-12-01T10:25:00Z"
+    },
+    "status": "connected"
+  },
+  "api_response": {
+    "status": "connected",
+    "device_info": {
+      "battery": 85,
+      "connected": true
+    }
+  }
+}
+```
+
+### 6. Update Session
+
+**Endpoint:** `PUT /wasender/sessions/{id}`
+**Method:** PUT
+**Authentication:** None
+
+#### Request Body (All fields optional)
+```json
+{
+  "name": "Updated Business WhatsApp Name",
+  "phone_number": "+1987654321",
+  "account_protection": false,
+  "log_messages": false,
+  "read_incoming_messages": true,
+  "webhook_url": "https://new-webhook.example.com/wasender-updates",
+  "webhook_enabled": false,
+  "webhook_events": [
+    "messages.received",
+    "session.status"
+  ]
+}
+```
+
+#### Response (Success)
+```json
+{
+  "success": true,
+  "message": "WhatsApp session updated successfully",
+  "data": {
+    "id": 1,
+    "schema_name": "client_tenant_demo",
+    "name": "Updated Business WhatsApp Name",
+    "phone_number": "+1987654321",
+    "webhook_enabled": false,
+    "updated_at": "2025-12-01T10:30:00Z"
+  },
+  "api_response": {
+    "success": true,
+    "data": {
+      "name": "Updated Business WhatsApp Name",
+      "webhook_enabled": false
+    }
+  }
+}
+```
+
+### 7. Get QR Code
+
+**Endpoint:** `GET /wasender/sessions/{id}/qrcode`
+**Method:** GET
+**Authentication:** None
+
+#### Response (Success)
+```json
+{
+  "success": true,
+  "message": "QR code retrieved successfully",
+  "data": {
+    "session": {
+      "id": 1,
+      "schema_name": "client_tenant_demo",
+      "status": "connecting"
+    },
+    "qr_code": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
+  },
+  "api_response": {
+    "data": {
+      "qrCode": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
+    }
+  }
+}
+```
+
+### 8. Delete Session
+
+**Endpoint:** `DELETE /wasender/sessions/{id}`
+**Method:** DELETE
+**Authentication:** None
+
+#### Response (Success)
+```json
+{
+  "success": true,
+  "message": "WhatsApp session deleted successfully",
+  "data": {
+    "deleted_local_id": 1,
+    "deleted_wasender_id": "ws_abc123"
+  },
+  "api_response": {}
+}
+```
+
+---
+
+## ERROR RESPONSES
+
+### Common Error Formats
+
+#### Validation Error (422)
+```json
+{
+  "success": false,
+  "message": "Validation failed",
+  "errors": {
+    "schema_name": ["Schema name is required"],
+    "channel": ["Message channel must be one of: sms, email, whatsapp"]
+  }
+}
+```
+
+#### Not Found Error (404)
+```json
+{
+  "success": false,
+  "error": "Session not found",
+  "message": "The requested session could not be found"
+}
+```
+
+#### Server Error (500)
+```json
+{
+  "success": false,
+  "error": "Failed to send notification",
+  "message": "An internal server error occurred"
+}
+```
+
+#### Schema-specific Errors (400)
+```json
+{
+  "success": false,
+  "error": "WaSender session not found or API key unavailable",
+  "message": "No active WaSender session found for schema: client_tenant_demo"
+}
+```
+
+```json
+{
+  "success": false,
+  "error": "SMS session not found",
+  "message": "No SMS session found for schema: client_tenant_demo"
+}
+```
+
+---
+
+## USAGE NOTES
+
+### Schema-based Configuration
+- All notification requests require `schema_name` field
+- WaSender sessions are linked to schemas for multi-tenancy
+- SMS sessions determine sender names per schema
+
+### WhatsApp (WaSender) Flow
+1. Create session with `/wasender/sessions/create`
+2. Connect session with `/wasender/sessions/{id}/connect`
+3. Scan QR code to connect WhatsApp
+4. Send messages via `/notifications/send` with `provider: "wasender"`
+
+### SMS Flow
+1. Ensure SMS session exists in database for schema
+2. Send messages via `/notifications/send` with `channel: "sms"`
+3. Sender name resolved from schema-specific configuration
+
+### Rate Limiting
+- Bulk operations support rate limiting via `rate_limit` parameter
+- Individual notifications are processed immediately
+- Queue system handles background processing
+
+### Webhooks
+- Configure webhook URLs for delivery status updates
+- Supports multiple webhook events for WaSender sessions
+- Generic webhook endpoint available for custom integrations
