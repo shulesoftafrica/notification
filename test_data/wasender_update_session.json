@@ -1,0 +1,13 @@
+{
+  "name": "Updated Business WhatsApp Name",
+  "phone_number": "+1987654321",
+  "account_protection": false,
+  "log_messages": false,
+  "read_incoming_messages": true,
+  "webhook_url": "https://new-webhook.example.com/wasender-updates",
+  "webhook_enabled": false,
+  "webhook_events": [
+    "messages.received",
+    "session.status"
+  ]
+}

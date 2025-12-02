@@ -2,10 +2,12 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Auth\AdminAuthController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\WebhookController;
+use App\Http\Controllers\WaSenderSessionController;
 
 /*
 |--------------------------------------------------------------------------
@@ -121,6 +123,18 @@ Route::prefix('webhook')->group(function () {
     Route::any('/mailgun', [WebhookController::class, 'mailgun']);
     Route::any('/test', [WebhookController::class, 'test']);
     Route::any('/{provider}', [WebhookController::class, 'generic']);
+});
+
+// WaSender WhatsApp Session Management API
+Route::prefix('wasender')->group(function () {
+    Route::post('/sessions/create', [WaSenderSessionController::class, 'createSession']);
+    Route::get('/sessions', [WaSenderSessionController::class, 'getSessions']);
+    Route::get('/sessions/{id}', [WaSenderSessionController::class, 'getSession']);
+    Route::post('/sessions/{id}/connect', [WaSenderSessionController::class, 'connectSession']);
+    Route::get('/sessions/{id}/status', [WaSenderSessionController::class, 'checkStatus']);
+    Route::put('/sessions/{id}', [WaSenderSessionController::class, 'updateSession']);
+    Route::get('/sessions/{id}/qrcode', [WaSenderSessionController::class, 'getQRCode']);
+    Route::delete('/sessions/{id}', [WaSenderSessionController::class, 'deleteSession']);
 });
 
 // User info route (for authenticated users)

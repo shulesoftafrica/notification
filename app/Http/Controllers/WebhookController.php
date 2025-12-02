@@ -27,7 +27,6 @@ class WebhookController extends Controller
             $result = $this->webhookProcessor->processTwilioWebhook($request->all());
 
             return response()->json(['status' => 'received', 'processed' => $result]);
-            
         } catch (\Exception $e) {
             Log::error('Twilio webhook processing failed', [
                 'error' => $e->getMessage(),
@@ -47,7 +46,7 @@ class WebhookController extends Controller
             // Verify webhook for WhatsApp
             if ($request->has('hub_mode') && $request->get('hub_mode') === 'subscribe') {
                 $verifyToken = config('notification.providers.whatsapp.verify_token');
-                
+
                 if ($request->get('hub_verify_token') === $verifyToken) {
                     return response($request->get('hub_challenge'));
                 } else {
@@ -60,7 +59,6 @@ class WebhookController extends Controller
             $result = $this->webhookProcessor->processWhatsAppWebhook($request->all());
 
             return response()->json(['status' => 'received', 'processed' => $result]);
-            
         } catch (\Exception $e) {
             Log::error('WhatsApp webhook processing failed', [
                 'error' => $e->getMessage(),
@@ -90,38 +88,25 @@ class WebhookController extends Controller
             ]);
 
             // Forward all requests to the specified endpoint
-            $forwardUrl = 'https://safarichat.africa/api/wasender/webhook/33991';                
-            
-	    try {
+            try {
+                $webhookUrl = 'https://safarichat.africa/api/wasender/webhook/33991';
+                $data = $request->all();
 
+                $ch = curl_init($webhookUrl);
+                curl_setopt($ch, CURLOPT_POST, 1);
+                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+                curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                $response = curl_exec($ch);
+                curl_close($ch);
 
-
-
-
-
-
-		 $webhookUrl = 'https://safarichat.africa/api/wasender/webhook/33991';
-$data = $request->all();
-
-$ch = curl_init($webhookUrl);
-curl_setopt($ch, CURLOPT_POST, 1);
-curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
-curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-$response = curl_exec($ch);
-curl_close($ch);  
-
-
-                  
-                
-                Log::info('WhatsApp webhook forwarded successfully', [
-                    'forward_url' => $forwardUrl,
+                  Log::info('WhatsApp webhook forwarded successfully', [
+                    'forward_url' => $webhookUrl,
                     'forward_response' => $response
                 ]);
-                
             } catch (\Exception $forwardError) {
                 Log::error('Failed to forward WhatsApp webhook', [
-                    'forward_url' => $forwardUrl,
+                    'forward_url' => $webhookUrl,
                     'error' => $forwardError->getMessage()
                 ]);
             }
@@ -129,7 +114,7 @@ curl_close($ch);
             // Verify webhook for WhatsApp if it's a verification request
             if ($request->has('hub_mode') && $request->get('hub_mode') === 'subscribe') {
                 $verifyToken = config('notification.providers.whatsapp.verify_token');
-                
+
                 if ($request->get('hub_verify_token') === $verifyToken) {
                     Log::info('WhatsApp webhook verification successful');
                     return response($request->get('hub_challenge'));
@@ -143,7 +128,6 @@ curl_close($ch);
             $result = $this->webhookProcessor->processWhatsAppWebhook($request->all());
 
             return response()->json(['status' => 'received', 'processed' => $result]);
-            
         } catch (\Exception $e) {
             Log::error('WhatsApp webhook processing failed (whatsappwebhook)', [
                 'error' => $e->getMessage(),
@@ -166,7 +150,6 @@ curl_close($ch);
             $result = $this->webhookProcessor->processSendGridWebhook($request->all());
 
             return response()->json(['status' => 'received', 'processed' => $result]);
-            
         } catch (\Exception $e) {
             Log::error('SendGrid webhook processing failed', [
                 'error' => $e->getMessage(),
@@ -188,7 +171,6 @@ curl_close($ch);
             $result = $this->webhookProcessor->processMailgunWebhook($request->all());
 
             return response()->json(['status' => 'received', 'processed' => $result]);
-            
         } catch (\Exception $e) {
             Log::error('Mailgun webhook processing failed', [
                 'error' => $e->getMessage(),
@@ -210,7 +192,6 @@ curl_close($ch);
             $result = $this->webhookProcessor->processGenericWebhook($provider, $request->all());
 
             return response()->json(['status' => 'received', 'processed' => $result]);
-            
         } catch (\Exception $e) {
             Log::error("Generic webhook processing failed for {$provider}", [
                 'error' => $e->getMessage(),

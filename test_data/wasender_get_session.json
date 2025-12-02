@@ -1,0 +1,7 @@
+{
+  "description": "Get a single session from database",
+  "method": "GET",
+  "endpoint": "/api/wasender/sessions/{id}",
+  "example_url": "/api/wasender/sessions/1",
+  "note": "Replace {id} with actual session ID - no request body needed"
+}

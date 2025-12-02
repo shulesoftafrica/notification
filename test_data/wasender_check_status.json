@@ -1,0 +1,7 @@
+{
+  "description": "Check WhatsApp session status",
+  "method": "GET",
+  "endpoint": "/api/wasender/sessions/{id}/status",
+  "example_url": "/api/wasender/sessions/1/status",
+  "note": "No request body needed - uses session's API key to check status"
+}

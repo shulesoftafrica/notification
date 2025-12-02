@@ -252,8 +252,26 @@ class WhatsAppAdapter implements ProviderAdapterInterface
     protected function sendViaWasender(string $to, string $message, array $metadata, float $startTime, ?string $attachment = null, ?array $attachmentMetadata = null): ProviderResponse
     {
         $apiUrl = $this->config['api_url'];
-        $apiKey = $this->config['api_key'];
         $deviceId = $this->config['device_id'];
+        
+        // Use API key from metadata if available (for schema-based sessions), otherwise fall back to config
+        $apiKey = $metadata['wasender_api_key'] ?? $this->config['api_key'];
+        
+        // If no API key is available, fail the request
+        if (!$apiKey) {
+            Log::error('WaSender API key not available', [
+                'schema_name' => $metadata['schema_name'] ?? 'unknown',
+                'has_metadata_key' => isset($metadata['wasender_api_key']),
+                'has_config_key' => isset($this->config['api_key'])
+            ]);
+            
+            return ProviderResponse::failure(
+                'wasender',
+                'WaSender API key not available for the specified schema',
+                [],
+                $this->getResponseTime($startTime)
+            );
+        }
 
         // Clean phone number (ensure it has country code)
         $phoneNumber = preg_replace('/[^\d+]/', '', $to);
@@ -330,6 +348,7 @@ class WhatsAppAdapter implements ProviderAdapterInterface
 
         if ($response->successful()) {
             $data = $response->json();
+            Log::info('Response data', $data);
             
             return ProviderResponse::success(
                 'wasender',

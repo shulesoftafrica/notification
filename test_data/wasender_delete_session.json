@@ -1,0 +1,7 @@
+{
+  "description": "Delete WhatsApp session",
+  "method": "DELETE", 
+  "endpoint": "/api/wasender/sessions/{id}",
+  "example_url": "/api/wasender/sessions/1",
+  "note": "No request body needed - deletes session from both WaSender API and local database"
+}

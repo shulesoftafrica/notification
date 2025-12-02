@@ -25,6 +25,7 @@ class SendMessageRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'schema_name' => ['required', 'string', 'max:255'],
             'channel' => ['required', 'string', Rule::in(['sms', 'email', 'whatsapp'])],
             'to' => ['required', 'string', 'max:255'],
             'message' => ['required', 'string', 'max:4096'],
@@ -56,6 +57,9 @@ class SendMessageRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'schema_name.required' => 'Schema name is required',
+            'schema_name.string' => 'Schema name must be a string',
+            'schema_name.max' => 'Schema name must not exceed 255 characters',
             'channel.required' => 'Message channel is required',
             'channel.in' => 'Message channel must be one of: sms, email, whatsapp',
             'to.required' => 'Recipient is required',

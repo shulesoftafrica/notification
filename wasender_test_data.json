@@ -1,0 +1,90 @@
+{
+  "createSession": {
+    "method": "POST",
+    "endpoint": "/api/wasender/sessions/create",
+    "data": {
+      "schema_name": "client_tenant_demo",
+      "name": "Demo Business WhatsApp",
+      "phone_number": "+1234567890",
+      "account_protection": true,
+      "log_messages": true,
+      "read_incoming_messages": false,
+      "webhook_url": "https://webhook.example.com/wasender",
+      "webhook_enabled": true,
+      "webhook_events": [
+        "messages.received",
+        "session.status",
+        "messages.update"
+      ]
+    }
+  },
+  "getSessions": {
+    "method": "GET",
+    "endpoint": "/api/wasender/sessions",
+    "data": null,
+    "note": "No request body needed"
+  },
+  "getSession": {
+    "method": "GET",
+    "endpoint": "/api/wasender/sessions/{id}",
+    "example_url": "/api/wasender/sessions/1",
+    "data": null,
+    "note": "Replace {id} with actual session ID"
+  },
+  "connectSession": {
+    "method": "POST",
+    "endpoint": "/api/wasender/sessions/{id}/connect",
+    "example_url": "/api/wasender/sessions/1/connect",
+    "data": null,
+    "note": "No request body needed - triggers connection and returns QR code"
+  },
+  "checkStatus": {
+    "method": "GET",
+    "endpoint": "/api/wasender/sessions/{id}/status",
+    "example_url": "/api/wasender/sessions/1/status",
+    "data": null,
+    "note": "No request body needed - uses session's API key"
+  },
+  "updateSession": {
+    "method": "PUT",
+    "endpoint": "/api/wasender/sessions/{id}",
+    "example_url": "/api/wasender/sessions/1",
+    "data": {
+      "name": "Updated Business WhatsApp Name",
+      "phone_number": "+1987654321",
+      "account_protection": false,
+      "log_messages": false,
+      "read_incoming_messages": true,
+      "webhook_url": "https://new-webhook.example.com/wasender-updates",
+      "webhook_enabled": false,
+      "webhook_events": [
+        "messages.received",
+        "session.status"
+      ]
+    }
+  },
+  "updateSessionPartial": {
+    "method": "PUT",
+    "endpoint": "/api/wasender/sessions/{id}",
+    "example_url": "/api/wasender/sessions/1",
+    "data": {
+      "name": "Minimal Update Example",
+      "webhook_enabled": true
+    },
+    "note": "Partial update - only send fields you want to change"
+  },
+  "getQRCode": {
+    "method": "GET",
+    "endpoint": "/api/wasender/sessions/{id}/qrcode",
+    "example_url": "/api/wasender/sessions/1/qrcode",
+    "data": null,
+    "note": "No request body needed - returns QR code string"
+  },
+  "deleteSession": {
+    "method": "DELETE",
+    "endpoint": "/api/wasender/sessions/{id}",
+    "example_url": "/api/wasender/sessions/1",
+    "data": null,
+    "note": "No request body needed - deletes from both WaSender API and local database"
+  }
+}
