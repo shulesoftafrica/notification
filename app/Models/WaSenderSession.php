@@ -9,7 +9,7 @@ class WaSenderSession extends Model
 {
     use HasFactory;
 
-    protected $table = 'notification.wa_sender_sessions';
+    protected $table = 'notifications.wa_sender_sessions';
 
     protected $fillable = [
         'schema_name',
