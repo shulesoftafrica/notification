@@ -9,7 +9,7 @@ class SmsSession extends Model
 {
     use HasFactory;
 
-    protected $table = 'notification.sms_sessions';
+    protected $table = 'notifications.sms_sessions';
 
     protected $fillable = [
         'schema_name',
