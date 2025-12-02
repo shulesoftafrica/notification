@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'wasender' => [
+        'base_url' => env('WASENDER_BASE_URL', 'https://www.wasenderapi.com/api'),
+        'access_token' => env('WASENDER_ACCESS_TOKEN'),
+    ],
+
 ];

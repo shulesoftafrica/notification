@@ -1,0 +1,15 @@
+{
+  "schema_name": "client_tenant_demo",
+  "name": "Demo Business WhatsApp",
+  "phone_number": "+1234567890",
+  "account_protection": true,
+  "log_messages": true,
+  "read_incoming_messages": false,
+  "webhook_url": "https://webhook.example.com/wasender",
+  "webhook_enabled": true,
+  "webhook_events": [
+    "messages.received",
+    "session.status",
+    "messages.update"
+  ]
+}

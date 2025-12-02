@@ -200,7 +200,7 @@ class WhatsAppAdapter implements ProviderAdapterInterface
         $mediaType = $this->getMediaTypeFromMime($mimeType);
         
         // Get public URL for the attachment
-        $mediaUrl = url('storage/' . $attachment);
+        $mediaUrl = url($attachment);
         
         $payload = [
             'messaging_product' => 'whatsapp',
@@ -252,8 +252,26 @@ class WhatsAppAdapter implements ProviderAdapterInterface
     protected function sendViaWasender(string $to, string $message, array $metadata, float $startTime, ?string $attachment = null, ?array $attachmentMetadata = null): ProviderResponse
     {
         $apiUrl = $this->config['api_url'];
-        $apiKey = $this->config['api_key'];
         $deviceId = $this->config['device_id'];
+        
+        // Use API key from metadata if available (for schema-based sessions), otherwise fall back to config
+        $apiKey = $metadata['wasender_api_key'] ?? $this->config['api_key'];
+        
+        // If no API key is available, fail the request
+        if (!$apiKey) {
+            Log::error('WaSender API key not available', [
+                'schema_name' => $metadata['schema_name'] ?? 'unknown',
+                'has_metadata_key' => isset($metadata['wasender_api_key']),
+                'has_config_key' => isset($this->config['api_key'])
+            ]);
+            
+            return ProviderResponse::failure(
+                'wasender',
+                'WaSender API key not available for the specified schema',
+                [],
+                $this->getResponseTime($startTime)
+            );
+        }
 
         // Clean phone number (ensure it has country code)
         $phoneNumber = preg_replace('/[^\d+]/', '', $to);
@@ -270,11 +288,12 @@ class WhatsAppAdapter implements ProviderAdapterInterface
         // Handle uploaded attachment
         if ($attachment && $attachmentMetadata) {
             $mimeType = $attachmentMetadata['mime_type'] ?? '';
-            $mediaUrl = url('storage/' . $attachment);
+            $mediaUrl = url($attachment);
+            Log::info('Media URL generated', ['url' => $mediaUrl]);
             
             
             if (str_starts_with($mimeType, 'image/')) {
-                $payload['image_url'] = $mediaUrl;
+                $payload['imageUrl'] = $mediaUrl;
             } elseif (str_starts_with($mimeType, 'video/')) {
                 $payload['video_url'] = $mediaUrl;
             } elseif (str_starts_with($mimeType, 'audio/')) {
@@ -323,15 +342,13 @@ class WhatsAppAdapter implements ProviderAdapterInterface
             'Authorization' => 'Bearer ' . $apiKey,
             'Content-Type' => 'application/json'
         ])
-        ->timeout(60)
-        ->connectTimeout(30)
-        ->retry(2, 1000)
         ->post("{$apiUrl}/api/send-message", $payload);
 
         $responseTime = $this->getResponseTime($startTime);
 
         if ($response->successful()) {
             $data = $response->json();
+            Log::info('Response data', $data);
             
             return ProviderResponse::success(
                 'wasender',

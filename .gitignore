@@ -32,3 +32,4 @@ storage/app/public/*
 *.py
 storage/public/*
 
+public/

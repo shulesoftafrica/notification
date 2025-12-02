@@ -23,8 +23,8 @@ class SmsAdapter implements ProviderAdapterInterface
     {
         $startTime = microtime(true);
         
-        // Extract sender name from metadata if provided
-        $senderName = $metadata['sender_name'] ?? null;
+        // Extract sender name from metadata (schema-based) or use provided sender_name
+        $senderName = $this->getEffectiveSenderName($metadata);
 
         try {
             switch ($this->provider) {
@@ -423,5 +423,30 @@ class SmsAdapter implements ProviderAdapterInterface
     protected function getResponseTime(float $startTime): int
     {
         return (int) round((microtime(true) - $startTime) * 1000);
+    }
+
+    /**
+     * Get effective sender name from metadata or config
+     * Priority: schema-based sender name > request sender name > config sender name > default
+     */
+    protected function getEffectiveSenderName(array $metadata): ?string
+    {
+        // First check for schema-based SMS sender name from metadata
+        if (isset($metadata['sms_sender_name'])) {
+            if ($metadata['sms_sender_name'] === null) {
+                // SMS session exists but sender_name is null, use default "SHULESOFT"
+                return 'SHULESOFT';
+            }
+            // Use the schema-specific sender name
+            return $metadata['sms_sender_name'];
+        }
+
+        // Fallback to legacy sender_name from metadata (for backward compatibility)
+        if (isset($metadata['sender_name'])) {
+            return $metadata['sender_name'];
+        }
+
+        // Final fallback to config or default
+        return $this->config['sender_name'] ?? 'SHULESOFT';
     }
 }

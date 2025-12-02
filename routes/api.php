@@ -2,10 +2,12 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Auth\AdminAuthController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\WebhookController;
+use App\Http\Controllers\WaSenderSessionController;
 
 /*
 |--------------------------------------------------------------------------
@@ -40,7 +42,7 @@ Route::middleware(['admin.auth'])->prefix('admin')->group(function () {
             'queue_size' => 23
         ]);
     });
-    
+
     Route::get('/users', function () {
         return response()->json([
             'data' => \App\Models\User::all()
@@ -87,14 +89,14 @@ Route::middleware(['admin.auth'])->prefix('providers')->group(function () {
             ]
         ]);
     });
-    
+
     Route::post('/{provider}/test', function ($provider) {
         return response()->json(['status' => 'test_sent', 'provider' => $provider]);
     });
 });
 
 // Analytics API
-Route::middleware(['admin.auth'])->prefix('analytics')->group(function () {
+Route::middleware(['api.auth'])->prefix('analytics')->group(function () {
     Route::get('/summary', function () {
         return response()->json([
             'today' => ['sent' => 145, 'delivered' => 142, 'failed' => 3],
@@ -102,7 +104,7 @@ Route::middleware(['admin.auth'])->prefix('analytics')->group(function () {
             'month' => ['sent' => 5480, 'delivered' => 5380, 'failed' => 100]
         ]);
     });
-    
+
     Route::get('/providers', function () {
         return response()->json([
             'email' => 60,
@@ -121,6 +123,19 @@ Route::prefix('webhook')->group(function () {
     Route::any('/mailgun', [WebhookController::class, 'mailgun']);
     Route::any('/test', [WebhookController::class, 'test']);
     Route::any('/{provider}', [WebhookController::class, 'generic']);
+});
+
+// WaSender WhatsApp Session Management API
+Route::middleware(['api.auth'])->prefix('wasender')->group(function () {
+    
+    Route::post('/sessions/create', [WaSenderSessionController::class, 'createSession']);
+    Route::get('/sessions', [WaSenderSessionController::class, 'getSessions']);
+    Route::get('/sessions/{id}', [WaSenderSessionController::class, 'getSession']);
+    Route::post('/sessions/{id}/connect', [WaSenderSessionController::class, 'connectSession']);
+    Route::get('/sessions/{id}/status', [WaSenderSessionController::class, 'checkStatus']);
+    Route::put('/sessions/{id}', [WaSenderSessionController::class, 'updateSession']);
+    Route::get('/sessions/{id}/qrcode', [WaSenderSessionController::class, 'getQRCode']);
+    Route::delete('/sessions/{id}', [WaSenderSessionController::class, 'deleteSession']);
 });
 
 // User info route (for authenticated users)
