@@ -11,7 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('notification.sms_sessions', function (Blueprint $table) {
+        Schema::create('sms_sessions', function (Blueprint $table) {
             $table->id();
             $table->string('schema_name')->index();
             $table->string('sender_name')->nullable();
@@ -30,6 +30,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('notification.sms_sessions');
+        Schema::dropIfExists('sms_sessions');
     }
 };
