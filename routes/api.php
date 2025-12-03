@@ -50,13 +50,19 @@ Route::middleware(['admin.auth'])->prefix('admin')->group(function () {
     });
 });
 
-// Notification API
-Route::post('/notifications/send', [NotificationController::class, 'send']);
+// Notification API with Redis throttling (2 requests per second)
+Route::middleware(['redis.throttle:2,1'])->group(function () {
+    Route::post('/notifications/send', [NotificationController::class, 'send']);
+    Route::post('/notifications/bulk/send', [NotificationController::class, 'sendBulk']);
+});
+
+// Other notification routes without throttling
 Route::get('/notifications/{id}', [NotificationController::class, 'status']);
 Route::get('/notifications', [NotificationController::class, 'index']);
 
-// Bulk Notification API (non-realtime)
-Route::post('/notifications/bulk/send', [NotificationController::class, 'sendBulk']);
+// Throttling management routes
+Route::get('/throttling/status', [App\Http\Controllers\ThrottlingController::class, 'status']);
+Route::middleware(['admin.auth'])->post('/throttling/clear', [App\Http\Controllers\ThrottlingController::class, 'clear']);
 
 
 // Route::any('/notifications/{path?}', [NotificationController::class, 'index'])->where('path', '.*');
