@@ -10,6 +10,87 @@ https://your-domain.com/api
 ## Authentication
 - **Notification API**: Uses `api.auth` middleware with API key authentication
 - **WaSender API**: Public access (no authentication required)
+- **Rate Limiting**: 2 requests per second via Redis throttling
+
+## Rate Limiting
+
+All notification sending endpoints are protected by Redis-based rate limiting:
+
+- **Single notifications (`/notifications/send`)**: 2 requests per second
+- **Bulk notifications (`/notifications/bulk/send`)**: 2 requests per second
+- Rate limits are applied per API key (if authenticated) or per IP address
+- Rate limit headers are included in all responses
+
+### Rate Limit Headers
+```
+X-RateLimit-Limit: 2
+X-RateLimit-Remaining: 1
+X-RateLimit-Reset: 1733155200
+Retry-After: 1
+```
+
+### Rate Limit Exceeded Response (429)
+```json
+{
+  "success": false,
+  "error": "Rate limit exceeded",
+  "message": "Too many requests. Limit: 2 requests per 1 second(s)",
+  "retry_after": 1,
+  "limit": 2,
+  "remaining": 0,
+  "reset_at": 1733155200
+}
+```
+
+---
+
+## THROTTLING MANAGEMENT API
+
+### 1. Check Throttling Status
+
+**Endpoint:** `GET /throttling/status`
+**Method:** GET
+**Authentication:** None (uses same identifier as notifications)
+
+#### Response (Success)
+```json
+{
+  "success": true,
+  "data": {
+    "single_notifications": {
+      "current_attempts": 1,
+      "max_attempts": 2,
+      "remaining": 1,
+      "reset_in_seconds": 60,
+      "reset_at": "2025-12-03T10:31:00Z"
+    },
+    "bulk_notifications": {
+      "current_attempts": 0,
+      "max_attempts": 2,
+      "remaining": 2,
+      "reset_in_seconds": 0,
+      "reset_at": null
+    },
+    "identifier": "api_key",
+    "timestamp": "2025-12-03T10:30:00Z"
+  }
+}
+```
+
+### 2. Clear Throttling (Admin Only)
+
+**Endpoint:** `POST /throttling/clear`
+**Method:** POST
+**Authentication:** Required (Admin)
+
+#### Response (Success)
+```json
+{
+  "success": true,
+  "message": "Throttling cleared successfully",
+  "keys_cleared": 2
+}
+```
 
 ---
 
@@ -557,8 +638,11 @@ https://your-domain.com/api
 
 ### Rate Limiting
 - Bulk operations support rate limiting via `rate_limit` parameter
-- Individual notifications are processed immediately
+- **Redis-based throttling**: 2 requests per second for notification endpoints
+- Individual notifications are processed immediately (if within rate limits)
 - Queue system handles background processing
+- Rate limits are per API key or IP address
+- Use `/throttling/status` to check current limits
 
 ### Webhooks
 - Configure webhook URLs for delivery status updates
