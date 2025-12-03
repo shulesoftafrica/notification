@@ -129,7 +129,7 @@ class NotificationController extends Controller
                 ]),
                 'tags' => $validated['tags'] ?? [],
                 'webhook_url' => $validated['webhook_url'] ?? null,
-                'api_key' => $validated['api_key'],
+                'schema_name' => $validated['schema_name'],
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
                 'attachment' => $attachmentPath,
@@ -230,9 +230,9 @@ class NotificationController extends Controller
         try {
             $query = Message::query();
 
-            // Filter by API key
-            if ($apiKey = $request->attributes->get('api_key')) {
-                $query->where('api_key', $apiKey);
+            // Filter by schema name
+            if ($schemaName = $request->input('schema_name')) {
+                $query->where('schema_name', $schemaName);
             }
 
             // Filter by type/channel
@@ -401,7 +401,7 @@ class NotificationController extends Controller
                     ),
                     'tags' => $validated['tags'] ?? [],
                     'webhook_url' => $validated['webhook_url'] ?? null,
-                    'api_key' => $validated['api_key'],
+                    'schema_name' => $validated['schema_name'],
                     'ip_address' => $request->ip(),
                     'user_agent' => $request->userAgent(),
                     'attachment' => $attachmentPath,
