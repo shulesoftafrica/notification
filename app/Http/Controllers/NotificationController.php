@@ -263,18 +263,18 @@ class NotificationController extends Controller
             $query->orderBy('created_at', 'desc');
 
             // Paginate results
-            $perPage = min($request->get('per_page', 20), 100);
-            $messages = $query->paginate($perPage);
+            // $perPage = min($request->get('per_page', 20), 100);
+            $messages = $query->get();
 
             return response()->json([
                 'success' => true,
                 'data' => MessageResource::collection($messages),
-                'meta' => [
-                    'current_page' => $messages->currentPage(),
-                    'per_page' => $messages->perPage(),
-                    'total' => $messages->total(),
-                    'last_page' => $messages->lastPage(),
-                ]
+                // 'meta' => [
+                //     'current_page' => $messages->currentPage(),
+                //     'per_page' => $messages->perPage(),
+                //     'total' => $messages->total(),
+                //     'last_page' => $messages->lastPage(),
+                // ]
             ]);
         } catch (\Exception $e) {
             return response()->json([
