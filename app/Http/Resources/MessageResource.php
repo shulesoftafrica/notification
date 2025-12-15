@@ -19,21 +19,21 @@ class MessageResource extends JsonResource
             'channel' => $this->channel,
             'recipient' => $this->formatRecipient(),
             'subject' => $this->when($this->type === 'email', $this->subject),
-            'message' => $this->when($request->user()?->isAdmin(), $this->message),
+            'message' =>$this->message,
             'status' => $this->status,
             'provider' => $this->provider,
             'priority' => $this->priority,
             'scheduled_at' => $this->when($this->scheduled_at, function () {
-                return $this->scheduled_at->toISOString();
+                return $this->scheduled_at?->toISOString();
             }),
             'sent_at' => $this->when($this->sent_at, function () {
-                return $this->sent_at->toISOString();
+                return $this->sent_at?->toISOString();
             }),
             'delivered_at' => $this->when($this->delivered_at, function () {
-                return $this->delivered_at->toISOString();
+                return $this->delivered_at?->toISOString();
             }),
             'failed_at' => $this->when($this->failed_at, function () {
-                return $this->failed_at->toISOString();
+                return $this->failed_at?->toISOString();
             }),
             'external_id' => $this->external_id,
             'error_message' => $this->when($this->status === 'failed', $this->error_message),
@@ -45,8 +45,8 @@ class MessageResource extends JsonResource
             'webhook_attempts' => $this->when($this->webhook_url, $this->webhook_attempts),
             'cost' => $this->when($request->user()?->isAdmin(), $this->formatCost()),
             'duration_ms' => $this->duration_ms,
-            'created_at' => $this->created_at->toISOString(),
-            'updated_at' => $this->updated_at->toISOString(),
+            'created_at' => date('Y-m-d H:i:s', strtotime($this->created_at)),
+            'updated_at' => date('Y-m-d H:i:s', strtotime($this->updated_at)),
             
             // Computed fields
             'is_scheduled' => $this->scheduled_at && $this->scheduled_at->isFuture(),
