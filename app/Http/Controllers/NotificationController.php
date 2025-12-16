@@ -94,8 +94,8 @@ class NotificationController extends Controller
                 if (!$wasenderApiKey) {
                     return response()->json([
                         'success' => false,
-                        'error' => 'WaSender session not found or API key unavailable',
-                        'message' => 'No active WaSender session found for schema: ' . $validated['schema_name']
+                        'error' => 'WhatsApp session not found or API key unavailable',
+                        'message' => 'No active WhatsApp session found for client: ' . $validated['schema_name'].' Please reconnect again or contact shulesoft support'
                     ], 400);
                 }
             }
@@ -108,7 +108,7 @@ class NotificationController extends Controller
                     return response()->json([
                         'success' => false,
                         'error' => 'SMS session not found',
-                        'message' => 'No SMS session found for schema: ' . $validated['schema_name']
+                        'message' => 'No SMS session found for client: ' . $validated['schema_name']. '. Please contact shulesoft support'
                     ], 400);
                 }
             }
@@ -500,10 +500,9 @@ class NotificationController extends Controller
                     DB::rollBack();
                     return response()->json([
                         'success' => false,
-                        'error' => 'WaSender session not found or API key unavailable',
-                        'message' => 'No active WaSender session found for schema: ' . $validated['schema_name']
+                        'error' => 'WhatsApp session not found or API key unavailable',
+                        'message' => 'No active WhatsApp session found for client: ' . $validated['schema_name'].'. Please reconnect again or contact shulesoft support'
                     ], 400);
-                }
             }
 
             // Handle SMS sender_name validation for SMS channel
@@ -515,7 +514,7 @@ class NotificationController extends Controller
                     return response()->json([
                         'success' => false,
                         'error' => 'SMS session not found',
-                        'message' => 'No SMS session found for schema: ' . $validated['schema_name']
+                        'message' => 'No SMS session found for cleint: ' . $validated['schema_name']. '. Please contact shulesoft support'
                     ], 400);
                 }
             }

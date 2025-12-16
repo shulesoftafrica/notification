@@ -135,7 +135,7 @@ Route::prefix('webhook')->group(function () {
 
 // WaSender WhatsApp Session Management API
 Route::middleware(['api.auth'])->prefix('wasender')->group(function () {
-    
+
     Route::post('/sessions/create', [WaSenderSessionController::class, 'createSession']);
     Route::get('/sessions', [WaSenderSessionController::class, 'getSessions']);
     Route::get('/sessions/{id}', [WaSenderSessionController::class, 'getSession']);
