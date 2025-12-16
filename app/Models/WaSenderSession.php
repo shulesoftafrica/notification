@@ -36,7 +36,6 @@ class WaSenderSession extends Model
     ];
 
     protected $hidden = [
-        'api_key',
         'webhook_secret',
     ];
 }

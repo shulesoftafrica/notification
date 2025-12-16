@@ -94,8 +94,8 @@ class NotificationController extends Controller
                 if (!$wasenderApiKey) {
                     return response()->json([
                         'success' => false,
-                        'error' => 'WaSender session not found or API key unavailable',
-                        'message' => 'No active WaSender session found for schema: ' . $validated['schema_name']
+                        'error' => 'WhatsApp session not found or API key unavailable',
+                        'message' => 'No active WhatsApp session found for client: ' . $validated['schema_name'] . ' Please reconnect again or contact shulesoft support'
                     ], 400);
                 }
             }
@@ -108,7 +108,7 @@ class NotificationController extends Controller
                     return response()->json([
                         'success' => false,
                         'error' => 'SMS session not found',
-                        'message' => 'No SMS session found for schema: ' . $validated['schema_name']
+                        'message' => 'No SMS session found for client: ' . $validated['schema_name'] . '. Please contact shulesoft support'
                     ], 400);
                 }
             }
@@ -263,23 +263,167 @@ class NotificationController extends Controller
             $query->orderBy('created_at', 'desc');
 
             // Paginate results
-            $perPage = min($request->get('per_page', 20), 100);
-            $messages = $query->paginate($perPage);
+            // $perPage = min($request->get('per_page', 20), 100);
+            $messages = $query->get();
 
             return response()->json([
                 'success' => true,
                 'data' => MessageResource::collection($messages),
-                'meta' => [
-                    'current_page' => $messages->currentPage(),
-                    'per_page' => $messages->perPage(),
-                    'total' => $messages->total(),
-                    'last_page' => $messages->lastPage(),
-                ]
+                // 'meta' => [
+                //     'current_page' => $messages->currentPage(),
+                //     'per_page' => $messages->perPage(),
+                //     'total' => $messages->total(),
+                //     'last_page' => $messages->lastPage(),
+                // ]
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'error' => 'Failed to retrieve notifications',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Resend a notification by message ID
+     */
+    public function resend($id): JsonResponse
+    {
+        try {
+            $message = Message::findOrFail($id);
+
+            // Reset message status to pending
+            $message->update([
+                'status' => 'pending',
+                'sent_at' => null,
+                'failed_at' => null,
+                'error_message' => null,
+            ]);
+
+            // Prepare the same data structure as in send() method
+            $jobMessageData = [
+                'type' => $message->channel,
+                'channel' => $message->channel,
+                'to' => $message->recipient,
+                'subject' => $message->subject,
+                'message' => $message->message,
+                'metadata' => $message->metadata ?? [],
+                'provider' => $message->metadata['provider'] ?? null,
+                'sender_name' => $message->metadata['sender_name'] ?? null,
+                'whatsapp_type' => $message->metadata['type'] ?? null,
+                'webhook_url' => $message->webhook_url,
+                'attachment' => $message->attachment,
+                'attachment_metadata' => $message->attachment_metadata,
+            ];
+
+            // Dispatch the job with normal priority
+            DispatchMessage::dispatch(
+                $jobMessageData,
+                $message->id,
+                $message->priority ?? 'normal'
+            );
+
+            Log::info('Message resend dispatched', [
+                'message_id' => $message->id,
+                'channel' => $message->channel,
+                'recipient' => $message->recipient
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Message resend initiated successfully',
+                'message_id' => $message->id,
+                'status' => 'pending',
+                'data' => new MessageResource($message)
+            ], 200);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Message not found',
+                'message' => 'No message found with ID: ' . $id
+            ], 404);
+        } catch (\Exception $e) {
+            Log::error('Failed to resend message', [
+                'message_id' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'Failed to resend message',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Bulk delete notifications by message IDs
+     */
+    public function bulkDelete(Request $request): JsonResponse
+    {
+        Log::info('Bulk delete initiated', ['request' => $request->all()]);
+        try {
+            $request->validate([
+                'message_ids' => 'required|array|min:1',
+                'message_ids.*' => 'required|integer|exists:messages,id'
+            ]);
+
+            $messageIds = $request->input('message_ids');
+
+            // Get messages before deletion for logging and attachment cleanup
+            $messages = Message::whereIn('id', $messageIds)->get();
+
+            // Delete attachments from storage if they exist
+            foreach ($messages as $message) {
+                if ($message->attachment) {
+                    try {
+                        Storage::disk('public_root')->delete($message->attachment);
+                        Log::info('Attachment deleted', [
+                            'message_id' => $message->id,
+                            'attachment_path' => $message->attachment
+                        ]);
+                    } catch (\Exception $e) {
+                        Log::warning('Failed to delete attachment', [
+                            'message_id' => $message->id,
+                            'attachment_path' => $message->attachment,
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+                }
+            }
+
+            // Perform bulk delete
+            $deletedCount = Message::whereIn('id', $messageIds)->delete();
+
+            Log::info('Bulk delete completed', [
+                'deleted_count' => $deletedCount,
+                'message_ids' => $messageIds
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Messages deleted successfully',
+                'deleted_count' => $deletedCount,
+                'message_ids' => $messageIds
+            ], 200);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Validation failed',
+                'message' => $e->getMessage(),
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            Log::error('Failed to bulk delete messages', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'Failed to delete messages',
                 'message' => $e->getMessage()
             ], 500);
         }
@@ -354,8 +498,8 @@ class NotificationController extends Controller
                     DB::rollBack();
                     return response()->json([
                         'success' => false,
-                        'error' => 'WaSender session not found or API key unavailable',
-                        'message' => 'No active WaSender session found for schema: ' . $validated['schema_name']
+                        'error' => 'WhatsApp session not found or API key unavailable',
+                        'message' => 'No active WhatsApp session found for client: ' . $validated['schema_name'] . '. Please reconnect again or contact shulesoft support'
                     ], 400);
                 }
             }
@@ -369,7 +513,7 @@ class NotificationController extends Controller
                     return response()->json([
                         'success' => false,
                         'error' => 'SMS session not found',
-                        'message' => 'No SMS session found for schema: ' . $validated['schema_name']
+                        'message' => 'No SMS session found for cleint: ' . $validated['schema_name'] . '. Please contact shulesoft support'
                     ], 400);
                 }
             }
@@ -528,8 +672,8 @@ class NotificationController extends Controller
      */
     protected function isWasenderWhatsApp(array $validated): bool
     {
-        return $validated['channel'] === 'whatsapp' && 
-               (($validated['provider'] ?? null) === 'wasender' || 
+        return $validated['channel'] === 'whatsapp' &&
+            (($validated['provider'] ?? null) === 'wasender' ||
                 ($validated['type'] ?? null) === 'wasender');
     }
 
