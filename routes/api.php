@@ -59,6 +59,8 @@ Route::middleware(['redis.throttle:2,1'])->group(function () {
 // Other notification routes without throttling
 Route::get('/notifications/{id}', [NotificationController::class, 'status']);
 Route::get('/notifications', [NotificationController::class, 'index']);
+Route::post('/notifications/{id}/resend', [NotificationController::class, 'resend']);
+Route::delete('/notifications/bulk/delete', [NotificationController::class, 'bulkDelete']);
 
 // Throttling management routes
 Route::get('/throttling/status', [App\Http\Controllers\ThrottlingController::class, 'status']);

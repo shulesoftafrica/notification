@@ -20,6 +20,7 @@ class MessageResource extends JsonResource
             'recipient' => $this->formatRecipient(),
             'subject' => $this->when($this->type === 'email', $this->subject),
             'message' =>$this->message,
+            'schema_name'=>$this->schema_name,
             'status' => $this->status,
             'provider' => $this->provider,
             'priority' => $this->priority,
