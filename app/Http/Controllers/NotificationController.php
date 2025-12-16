@@ -95,7 +95,7 @@ class NotificationController extends Controller
                     return response()->json([
                         'success' => false,
                         'error' => 'WhatsApp session not found or API key unavailable',
-                        'message' => 'No active WhatsApp session found for client: ' . $validated['schema_name'].' Please reconnect again or contact shulesoft support'
+                        'message' => 'No active WhatsApp session found for client: ' . $validated['schema_name'] . ' Please reconnect again or contact shulesoft support'
                     ], 400);
                 }
             }
@@ -108,7 +108,7 @@ class NotificationController extends Controller
                     return response()->json([
                         'success' => false,
                         'error' => 'SMS session not found',
-                        'message' => 'No SMS session found for client: ' . $validated['schema_name']. '. Please contact shulesoft support'
+                        'message' => 'No SMS session found for client: ' . $validated['schema_name'] . '. Please contact shulesoft support'
                     ], 400);
                 }
             }
@@ -337,7 +337,6 @@ class NotificationController extends Controller
                 'status' => 'pending',
                 'data' => new MessageResource($message)
             ], 200);
-
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
                 'success' => false,
@@ -409,7 +408,6 @@ class NotificationController extends Controller
                 'deleted_count' => $deletedCount,
                 'message_ids' => $messageIds
             ], 200);
-
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'success' => false,
@@ -501,8 +499,9 @@ class NotificationController extends Controller
                     return response()->json([
                         'success' => false,
                         'error' => 'WhatsApp session not found or API key unavailable',
-                        'message' => 'No active WhatsApp session found for client: ' . $validated['schema_name'].'. Please reconnect again or contact shulesoft support'
+                        'message' => 'No active WhatsApp session found for client: ' . $validated['schema_name'] . '. Please reconnect again or contact shulesoft support'
                     ], 400);
+                }
             }
 
             // Handle SMS sender_name validation for SMS channel
@@ -514,7 +513,7 @@ class NotificationController extends Controller
                     return response()->json([
                         'success' => false,
                         'error' => 'SMS session not found',
-                        'message' => 'No SMS session found for cleint: ' . $validated['schema_name']. '. Please contact shulesoft support'
+                        'message' => 'No SMS session found for cleint: ' . $validated['schema_name'] . '. Please contact shulesoft support'
                     ], 400);
                 }
             }
@@ -673,8 +672,8 @@ class NotificationController extends Controller
      */
     protected function isWasenderWhatsApp(array $validated): bool
     {
-        return $validated['channel'] === 'whatsapp' && 
-               (($validated['provider'] ?? null) === 'wasender' || 
+        return $validated['channel'] === 'whatsapp' &&
+            (($validated['provider'] ?? null) === 'wasender' ||
                 ($validated['type'] ?? null) === 'wasender');
     }
 

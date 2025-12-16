@@ -216,8 +216,14 @@ class WaSenderSessionController extends Controller
     public function connectSession(int $id): JsonResponse
     {
         try {
-            // Get session from database
-            $session = WaSenderSession::findOrFail($id);
+            $session = WaSenderSession::where('wasender_session_id', $id)->first();
+
+            if (!$session) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Session not found',
+                ], 404);
+            }
 
             if (!$session->wasender_session_id) {
                 return response()->json([
@@ -329,7 +335,14 @@ class WaSenderSessionController extends Controller
     {
         try {
             // Get session from database
-            $session = WaSenderSession::findOrFail($id);
+            $session = WaSenderSession::where('wasender_session_id', $id)->first();
+
+            if (!$session) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Session not found',
+                ], 404);
+            }
 
             if (!$session->api_key) {
                 return response()->json([
@@ -611,7 +624,14 @@ class WaSenderSessionController extends Controller
     {
         try {
             // Get session from database
-            $session = WaSenderSession::findOrFail($id);
+             $session = WaSenderSession::where('wasender_session_id', $id)->first();
+
+            if (!$session) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Session not found',
+                ], 404);
+            }
 
             if (!$session->wasender_session_id) {
                 return response()->json([
@@ -684,7 +704,6 @@ class WaSenderSessionController extends Controller
                     'session' => $session,
                     'qr_code' => $apiResponse['data']['qrCode'] ?? null,
                 ],
-                'api_response' => $apiResponse,
             ]);
 
         } catch (Exception $e) {
