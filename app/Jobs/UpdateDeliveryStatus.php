@@ -123,6 +123,7 @@ class UpdateDeliveryStatus implements ShouldQueue
                 break;
             case 'delivered':
                 $updateData['delivered_at'] = now();
+                $updateData['status'] ='sent';
                 if (!$message->sent_at) {
                     $updateData['sent_at'] = now();
                 }
@@ -132,6 +133,7 @@ class UpdateDeliveryStatus implements ShouldQueue
                 break;
             case 'cancelled':
                 $updateData['cancelled_at'] = now();
+                $updateData['status'] ='failed';
                 break;
         }
 
