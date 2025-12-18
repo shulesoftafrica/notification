@@ -112,14 +112,30 @@ class NotificationController extends Controller
                     ], 400);
                 }
             }
+            // check sms balance before dispatching the queue if channel is sms (quick sms);
+            $dispatchMessage = true;
+            if ($validated['channel'] === 'sms') {
+                $smsBalance = $this->processBalance($validated['schema_name']);
+                $initialBalance = $smsBalance['balance'];
+                if ($initialBalance <= 0) { // 20
+                    $dispatchMessage = false;
+                }
 
+                $smscount = $this->countMessage($validated['message']);
+                $initialBalance -= $smscount;
+                if ($initialBalance > 0) {
+                    $dispatchMessage = true;
+                } else {
+                    $dispatchMessage = false;
+                }
+            }
             // Create message record
             $message = Message::create([
                 'channel' => $validated['channel'],
                 'recipient' => $validated['to'],
                 'subject' => $validated['subject'] ?? null,
                 'message' => $validated['message'],
-                'status' => 'pending',
+                'status' => $dispatchMessage ? 'pending' : 'no_credit',
                 'priority' => $validated['priority'] ?? 'normal',
                 'scheduled_at' => $validated['scheduled_at'] ?? null,
                 'metadata' => array_merge($validated['metadata'] ?? [], [
@@ -137,42 +153,44 @@ class NotificationController extends Controller
             ]);
 
             // Send the notification using unified service method
-            $result = $this->notificationService->send([
-                'channel' => $validated['channel'],
-                'to' => $validated['to'],
-                'subject' => $validated['subject'] ?? null,
-                'message' => $validated['message'],
-                'template_id' => $validated['template_id'] ?? null,
-                'priority' => $validated['priority'] ?? 'normal',
-                'metadata' => array_merge($validated['metadata'] ?? [], [
-                    'schema_name' => $validated['schema_name'],
-                    'wasender_api_key' => $wasenderApiKey, // Pass WaSender API key in metadata
-                    'sms_sender_name' => $smsSenderName, // Pass SMS sender name in metadata
-                ]),
-                'provider' => $validated['provider'] ?? null,
-                'sender_name' => $validated['sender_name'] ?? null,
-                'type' => $validated['type'] ?? null, // WhatsApp provider type
-                'webhook_url' => $validated['webhook_url'] ?? null,
-                'attachment' => $attachmentPath,
-                'attachment_metadata' => $attachmentMetadata,
-            ]);
+            if ($dispatchMessage) {
+                $result = $this->notificationService->send([
+                    'channel' => $validated['channel'],
+                    'to' => $validated['to'],
+                    'subject' => $validated['subject'] ?? null,
+                    'message' => $validated['message'],
+                    'template_id' => $validated['template_id'] ?? null,
+                    'priority' => $validated['priority'] ?? 'normal',
+                    'metadata' => array_merge($validated['metadata'] ?? [], [
+                        'schema_name' => $validated['schema_name'],
+                        'wasender_api_key' => $wasenderApiKey, // Pass WaSender API key in metadata
+                        'sms_sender_name' => $smsSenderName, // Pass SMS sender name in metadata
+                    ]),
+                    'provider' => $validated['provider'] ?? null,
+                    'sender_name' => $validated['sender_name'] ?? null,
+                    'type' => $validated['type'] ?? null, // WhatsApp provider type
+                    'webhook_url' => $validated['webhook_url'] ?? null,
+                    'attachment' => $attachmentPath,
+                    'attachment_metadata' => $attachmentMetadata,
+                ]);
 
-            // Update message with result
-            $message->update([
-                'status' => $result['status'] ?? 'failed',
-                'provider' => $result['provider'] ?? null,
-                'external_id' => $result['message_id'] ?? null,
-                'sent_at' => ($result['status'] ?? 'failed') === 'sent' ? now() : null,
-                'failed_at' => ($result['status'] ?? 'failed') === 'failed' ? now() : null,
-                'error_message' => $result['error'] ?? null,
-            ]);
+                // Update message with result
+                $message->update([
+                    'status' => $result['status'] ?? 'failed',
+                    'provider' => $result['provider'] ?? null,
+                    'external_id' => $result['message_id'] ?? null,
+                    'sent_at' => ($result['status'] ?? 'failed') === 'sent' ? now() : null,
+                    'failed_at' => ($result['status'] ?? 'failed') === 'failed' ? now() : null,
+                    'error_message' => $result['error'] ?? null,
+                ]);
+            }
 
             return response()->json([
                 'success' => true,
                 'message_id' => $message->id,
-                'external_id' => $result['message_id'] ?? null,
+                'external_id' => isset($result['message_id']) ? $result['message_id'] : null,
                 'status' => $message->status,
-                'provider' => $result['provider'] ?? null,
+                'provider' => isset($result['provider']) ? $result['provider'] : null,
                 'data' => new MessageResource($message)
             ], 201);
         } catch (\Exception $e) {
@@ -286,73 +304,162 @@ class NotificationController extends Controller
     }
 
     /**
-     * Resend a notification by message ID
+     * Resend notifications by message IDs (bulk resend)
      */
-    public function resend($id): JsonResponse
+    public function resend(Request $request): JsonResponse
     {
-        try {
-            $message = Message::findOrFail($id);
+        DB::beginTransaction();
 
-            // Reset message status to pending
-            $message->update([
-                'status' => 'pending',
-                'sent_at' => null,
-                'failed_at' => null,
-                'error_message' => null,
+        try {
+            $request->validate([
+                'message_ids' => 'required|array|min:1',
+                'message_ids.*' => 'required|integer|exists:messages,id',
+                'schema_name' => 'required|string'
             ]);
 
-            // Prepare the same data structure as in send() method
-            $jobMessageData = [
-                'type' => $message->channel,
-                'channel' => $message->channel,
-                'to' => $message->recipient,
-                'subject' => $message->subject,
-                'message' => $message->message,
-                'metadata' => $message->metadata ?? [],
-                'provider' => $message->metadata['provider'] ?? null,
-                'sender_name' => $message->metadata['sender_name'] ?? null,
-                'whatsapp_type' => $message->metadata['type'] ?? null,
-                'webhook_url' => $message->webhook_url,
-                'attachment' => $message->attachment,
-                'attachment_metadata' => $message->attachment_metadata,
-            ];
+            $messageIds = $request->input('message_ids');
+            $schemaName = $request->input('schema_name');
 
-            // Dispatch the job with normal priority
-            DispatchMessage::dispatch(
-                $jobMessageData,
-                $message->id,
-                $message->priority ?? 'normal'
-            );
+            // Get all messages by IDs
+            $messages = Message::whereIn('id', $messageIds)->get();
 
-            Log::info('Message resend dispatched', [
-                'message_id' => $message->id,
-                'channel' => $message->channel,
-                'recipient' => $message->recipient
+            if ($messages->isEmpty()) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'error' => 'No messages found',
+                    'message' => 'No messages found with provided IDs'
+                ], 404);
+            }
+
+            // Get channel from the first message
+            $channel = $messages->first()->channel;
+
+            $resendResults = [];
+            $totalResent = 0;
+            $totalSkipped = 0;
+
+            // Check SMS balance if channel is SMS
+            $dispatchMessage = true;
+            $initialBalance = 0;
+
+            if ($channel === 'sms') {
+                $smsBalance = $this->processBalance($schemaName);
+                $initialBalance = $smsBalance['balance'];
+                
+                if ($initialBalance <= 0) {
+                    Log::warning('Insufficient SMS balance for resend', [
+                        'schema_name' => $schemaName,
+                        'balance' => $initialBalance,
+                        'messages_count' => $messages->count()
+                    ]);
+                    $dispatchMessage = false;
+                }
+            }
+
+            // Process each message
+            foreach ($messages as $index => $message) {
+                $shouldDispatch = $dispatchMessage;
+
+                // For SMS, check balance for each message
+                if ($channel === 'sms' && $dispatchMessage) {
+                    $smscount = $this->countMessage($message->message);
+                    $initialBalance -= $smscount;
+                    
+                    if ($initialBalance <= 0) {
+                        $shouldDispatch = false;
+                    }
+                }
+
+                // Reset message status
+                $message->update([
+                    'status' => $shouldDispatch ? 'pending' : 'no_credit',
+                    'sent_at' => null,
+                    'failed_at' => null,
+                    'error_message' => null,
+                ]);
+
+                if ($shouldDispatch) {
+                    // Prepare job message data
+                    $jobMessageData = [
+                        'type' => $message->channel,
+                        'channel' => $message->channel,
+                        'to' => $message->recipient,
+                        'subject' => $message->subject,
+                        'message' => $message->message,
+                        'metadata' => $message->metadata ?? [],
+                        'provider' => $message->metadata['provider'] ?? null,
+                        'sender_name' => $message->metadata['sender_name'] ?? null,
+                        'whatsapp_type' => $message->metadata['type'] ?? null,
+                        'webhook_url' => $message->webhook_url,
+                        'attachment' => $message->attachment,
+                        'attachment_metadata' => $message->attachment_metadata,
+                    ];
+
+                    // Dispatch the job to queue
+                    DispatchMessage::dispatch(
+                        $jobMessageData,
+                        $message->id,
+                        $message->priority ?? 'normal'
+                    );
+
+                    $totalResent++;
+                } else {
+                    $totalSkipped++;
+                    
+                    Log::info('Message resend skipped - no credit', [
+                        'message_id' => $message->id,
+                        'schema_name' => $schemaName,
+                        'channel' => $channel
+                    ]);
+                }
+
+                $resendResults[] = [
+                    'message_id' => $message->id,
+                    'status' => $shouldDispatch ? 'queued' : 'skipped_no_credit',
+                    'channel' => $message->channel,
+                    'recipient' => $message->recipient
+                ];
+            }
+
+            DB::commit();
+
+            Log::info('Bulk resend completed', [
+                'total_messages' => count($messageIds),
+                'resent' => $totalResent,
+                'skipped' => $totalSkipped,
+                'schema_name' => $schemaName,
+                'channel' => $channel
             ]);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Message resend initiated successfully',
-                'message_id' => $message->id,
-                'status' => 'pending',
-                'data' => new MessageResource($message)
+                'message' => $totalSkipped > 0 ? 'Some messages were skipped due to insufficient credit.' : 'All messages have been resent successfully.',
+                'total_messages' => count($messageIds),
+                'resent_count' => $totalResent,
+                'skipped_count' => $totalSkipped,
+                'results' => $resendResults
             ], 200);
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            DB::rollBack();
             return response()->json([
                 'success' => false,
-                'error' => 'Message not found',
-                'message' => 'No message found with ID: ' . $id
-            ], 404);
+                'error' => 'Validation failed',
+                'message' => $e->getMessage(),
+                'errors' => $e->errors()
+            ], 422);
         } catch (\Exception $e) {
-            Log::error('Failed to resend message', [
-                'message_id' => $id,
+            DB::rollBack();
+            
+            Log::error('Failed to resend messages', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
 
             return response()->json([
                 'success' => false,
-                'error' => 'Failed to resend message',
+                'error' => 'Failed to resend messages',
                 'message' => $e->getMessage()
             ], 500);
         }
@@ -523,15 +630,35 @@ class NotificationController extends Controller
             $rateLimit = $validated['rate_limit'] ?? null;
             $priority = $validated['priority'] ?? 'normal';
 
+            // check sms balance before dispatching the queue if channel is sms (quick sms);
+            $dispatchMessage = true;
+            if ($validated['channel'] === 'sms') {
+                $smsBalance = $this->processBalance($validated['schema_name']);
+                $initialBalance = $smsBalance['balance'];
+                if ($initialBalance <= 0) { // 20
+                    $dispatchMessage = false;
+                }
+            }
+
             // Create message records for each recipient
+            $smscount = 0;
             foreach ($validated['messages'] as $index => $messageData) {
+                if ($validated['channel'] === 'sms') {
+                    $smscount = $this->countMessage($messageData['message']); // 3
+                    $initialBalance -= $smscount;
+                    if ($initialBalance > 0) {
+                        $dispatchMessage = true;
+                    } else {
+                        $dispatchMessage = false;
+                    }
+                }
                 // Create message record (similar to send() method)
                 $message = Message::create([
                     'channel' => $validated['channel'],
                     'recipient' => $messageData['to'],
                     'subject' => $messageData['subject'] ?? null,
                     'message' => $messageData['message'],
-                    'status' => 'pending',
+                    'status' => $dispatchMessage ? 'pending' : 'no_credit',
                     'priority' => $priority,
                     'scheduled_at' => $scheduledAt,
                     'metadata' => array_merge(
@@ -551,43 +678,45 @@ class NotificationController extends Controller
                     'attachment' => $attachmentPath,
                     'attachment_metadata' => $attachmentMetadata,
                 ]);
+                if ($dispatchMessage) {
+                    // Calculate delay for rate limiting
+                    $delay = 0;
+                    if ($rateLimit && $index > 0) {
+                        $delay = ($index / $rateLimit) * 60; // Convert to seconds
+                    }
 
-                // Calculate delay for rate limiting
-                $delay = 0;
-                if ($rateLimit && $index > 0) {
-                    $delay = ($index / $rateLimit) * 60; // Convert to seconds
+                    // Prepare message data for the job (similar to send() method)
+                    $jobMessageData = [
+                        'type' => $validated['channel'],
+                        'channel' => $validated['channel'],
+                        'to' => $messageData['to'],
+                        'subject' => $messageData['subject'] ?? null,
+                        'message' => $messageData['message'],
+                        'metadata' => array_merge(
+                            $messageData['metadata'] ?? [],
+                            $validated['metadata'] ?? [],
+                            [
+                                'schema_name' => $validated['schema_name'],
+                                'wasender_api_key' => $wasenderApiKey, // Pass WaSender API key in metadata
+                                'sms_sender_name' => $smsSenderName, // Pass SMS sender name in metadata
+                            ]
+                        ),
+                        'provider' => $validated['provider'] ?? null,
+                        'sender_name' => $validated['sender_name'] ?? null,
+                        'whatsapp_type' => $validated['type'] ?? null, // WhatsApp provider type
+                        'webhook_url' => $validated['webhook_url'] ?? null,
+                        'attachment' => $attachmentPath,
+                        'attachment_metadata' => $attachmentMetadata,
+                    ];
+
+                    // Dispatch job to queue with delay (similar to how send() would queue it)
+
+                    DispatchMessage::dispatch(
+                        $jobMessageData,
+                        $message->id,
+                        $priority
+                    )->delay($scheduledAt->copy()->addSeconds($delay));
                 }
-
-                // Prepare message data for the job (similar to send() method)
-                $jobMessageData = [
-                    'type' => $validated['channel'],
-                    'channel' => $validated['channel'],
-                    'to' => $messageData['to'],
-                    'subject' => $messageData['subject'] ?? null,
-                    'message' => $messageData['message'],
-                    'metadata' => array_merge(
-                        $messageData['metadata'] ?? [],
-                        $validated['metadata'] ?? [],
-                        [
-                            'schema_name' => $validated['schema_name'],
-                            'wasender_api_key' => $wasenderApiKey, // Pass WaSender API key in metadata
-                            'sms_sender_name' => $smsSenderName, // Pass SMS sender name in metadata
-                        ]
-                    ),
-                    'provider' => $validated['provider'] ?? null,
-                    'sender_name' => $validated['sender_name'] ?? null,
-                    'whatsapp_type' => $validated['type'] ?? null, // WhatsApp provider type
-                    'webhook_url' => $validated['webhook_url'] ?? null,
-                    'attachment' => $attachmentPath,
-                    'attachment_metadata' => $attachmentMetadata,
-                ];
-
-                // Dispatch job to queue with delay (similar to how send() would queue it)
-                DispatchMessage::dispatch(
-                    $jobMessageData,
-                    $message->id,
-                    $priority
-                )->delay($scheduledAt->copy()->addSeconds($delay));
 
                 $createdMessages[] = $message;
             }
@@ -728,5 +857,121 @@ class NotificationController extends Controller
             ]);
             return false;
         }
+    }
+    public function getSmsBalance($schemaName): array
+    {
+        $balance = [
+            'total_sms' => 0,
+            'total_sms_sent' => 0
+        ];
+        $schema = DB::connection('shulesoft')->table('admin.sms_status as a')
+            ->join('admin.clients as b', 'b.username', '=', 'a.schema_name')
+            ->where('a.message_left', '>', 0)
+            ->where('a.schema_name', $schemaName)
+            ->whereIn('b.status', [1, 2])
+            ->select('total_sms', 'total_sms_sent')
+            ->first();
+        if ($schema) {
+            $balance['total_sms'] = $schema->total_sms;
+            $balance['total_sms_sent'] = $schema->total_sms_sent;
+        }
+        return $balance;
+    }
+    public function getProcessBalance(Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'schema_name' => 'required|string',
+            ]);
+            $result = $this->processBalance($request->schema_name);
+            return response()->json($result);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Validation failed',
+                'message' => $e->getMessage(),
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            Log::error('Failed to get SMS balance', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'Failed to retrieve SMS balance',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+    public function processBalance($schemaName)
+    {
+        $result = [
+            'total_sms' => 0,
+            'total_sms_sent' => 0,
+            'balance' => 0
+        ];
+
+        try {
+            $sentMessages  = Message::where('schema_name', $schemaName)
+                ->where('channel', 'sms')
+                ->whereNotIn('status', ['pending', 'no_credit'])
+                ->select('message')
+                ->get();
+            $totalSent = 0;
+            if (!$sentMessages->isEmpty()) {
+                foreach ($sentMessages as $message) {
+                    $totalSent += $this->countMessage($message->message);
+                }
+            }
+
+            $smsCount = $this->getSmsBalance($schemaName);
+            $total_sms_sent = $totalSent + $smsCount['total_sms_sent'];
+            $balance = $smsCount['total_sms'] - $total_sms_sent;
+            $result = [
+                'total_sms' => $smsCount['total_sms'],
+                'total_sms_sent' => $total_sms_sent,
+                'balance' => $balance
+            ];
+        } catch (\Exception $e) {
+            Log::error('Failed to process SMS balance', [
+                'schema_name' => $schemaName,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+
+        return $result;
+    }
+
+    function countMessage(?string $val): int
+    {
+        // Match PostgreSQL behavior: char_length()
+        $length = mb_strlen($val ?? '', 'UTF-8');
+
+        if ($length >= 0 && $length <= 160) {
+            return 1;
+        } elseif ($length > 160 && $length <= 306) {
+            return 2;
+        } elseif ($length > 306 && $length <= 459) {
+            return 3;
+        } elseif ($length > 459 && $length <= 612) {
+            return 4;
+        } elseif ($length >= 612 && $length <= 765) {
+            return 5;
+        } elseif ($length > 765 && $length <= 918) {
+            return 6;
+        } elseif ($length > 918 && $length <= 1071) {
+            return 7;
+        } elseif ($length > 1071 && $length <= 1224) {
+            return 8;
+        } elseif ($length > 1224 && $length <= 1377) {
+            return 9;
+        } elseif ($length > 1377 && $length <= 1530) {
+            return 10;
+        }
+
+        return 0;
     }
 }

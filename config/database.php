@@ -96,6 +96,20 @@ return [
             'search_path' => env('DB_SCHEMA', 'public'),
             'sslmode' => 'prefer',
         ],
+        'shulesoft' => [
+            'driver' => 'pgsql',
+            'url' => env('SHULESOFT_URL'),
+            'host' => env('SHULESOFT_HOST', '127.0.0.1'),
+            'port' => env('SHULESOFT_PORT', '5432'),
+            'database' => env('SHULESOFT_DATABASE', 'shulesoft'),
+            'username' => env('SHULESOFT_USERNAME', 'root'),
+            'password' => env('SHULESOFT_PASSWORD', ''),
+            'charset' => env('SHULESOFT_CHARSET', 'utf8'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => env('SHULESOFT_SCHEMA', 'public'),
+            'sslmode' => 'prefer',
+        ],
 
         'sqlsrv' => [
             'driver' => 'sqlsrv',
