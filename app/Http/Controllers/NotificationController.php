@@ -356,6 +356,8 @@ class NotificationController extends Controller
                     $dispatchMessage = false;
                 }
             }
+            $scheduledAt = isset($request->scheduled_at) ? Carbon::parse($request->scheduled_at) : now();
+            $rateLimit = $request->rate_limit ?? null;
 
             // Process each message
             foreach ($messages as $index => $message) {
@@ -380,6 +382,10 @@ class NotificationController extends Controller
                 ]);
 
                 if ($shouldDispatch) {
+                    $delay = 0;
+                    if ($rateLimit && $index > 0) {
+                        $delay = ($index / $rateLimit) * 60; // Convert to seconds
+                    }
                     // Prepare job message data
                     $jobMessageData = [
                         'type' => $message->channel,
@@ -401,7 +407,7 @@ class NotificationController extends Controller
                         $jobMessageData,
                         $message->id,
                         $message->priority ?? 'normal'
-                    );
+                    )->delay($scheduledAt->copy()->addSeconds($delay));
 
                     $totalResent++;
                 } else {

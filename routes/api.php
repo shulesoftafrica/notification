@@ -54,12 +54,13 @@ Route::middleware(['admin.auth'])->prefix('admin')->group(function () {
 Route::middleware(['redis.throttle:2,1'])->group(function () {
     Route::post('/notifications/send', [NotificationController::class, 'send']);
     Route::post('/notifications/bulk/send', [NotificationController::class, 'sendBulk']);
+    Route::post('/notifications/resend', [NotificationController::class, 'resend']);
+
 });
 
 // Other notification routes without throttling
 Route::get('/notifications/{id}', [NotificationController::class, 'status']);
 Route::get('/notifications', [NotificationController::class, 'index']);
-Route::post('/notifications/resend', [NotificationController::class, 'resend']);
 Route::delete('/notifications/bulk/delete', [NotificationController::class, 'bulkDelete']);
 Route::post('/notifications/sms/balance', [NotificationController::class, 'getProcessBalance']);
 
