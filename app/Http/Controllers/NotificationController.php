@@ -872,7 +872,6 @@ class NotificationController extends Controller
         ];
         $schema = DB::connection('shulesoft')->table('admin.sms_status as a')
             ->join('admin.clients as b', 'b.username', '=', 'a.schema_name')
-            ->where('a.message_left', '>', 0)
             ->where('a.schema_name', $schemaName)
             ->whereIn('b.status', [1, 2])
             ->select('total_sms', 'total_sms_sent')
