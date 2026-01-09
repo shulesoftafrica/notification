@@ -50,7 +50,7 @@ return [
             'decay_seconds' => env('MAILGUN_DECAY_SECONDS', 1),
         ],
         'beem' => [
-            'max_attempts' => env('BEEM_MAX_ATTEMPTS', 5),
+            'max_attempts' => env('BEEM_MAX_ATTEMPTS', 10), // Increased from 5 to 10
             'decay_seconds' => env('BEEM_DECAY_SECONDS', 1),
         ],
         'termii' => [
@@ -86,7 +86,7 @@ return [
             'decay_seconds' => env('EMAIL_CHANNEL_DECAY_SECONDS', 1),
         ],
         'sms' => [
-            'max_attempts' => env('SMS_CHANNEL_MAX_ATTEMPTS', 5),
+            'max_attempts' => env('SMS_CHANNEL_MAX_ATTEMPTS', 10), // Increased from 5 to 10
             'decay_seconds' => env('SMS_CHANNEL_DECAY_SECONDS', 1),
         ],
         'whatsapp' => [

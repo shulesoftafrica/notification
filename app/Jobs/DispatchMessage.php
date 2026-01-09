@@ -17,7 +17,8 @@ class DispatchMessage implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, RedisThrottlesQueues;
 
     public $timeout = 120;
-    public $tries = 3;
+    public $tries = 15; // Increased to accommodate throttle releases
+    public $maxExceptions = 5; // Only fail after 5 actual exceptions (not releases)
     public $backoff = [30, 60, 120]; // Exponential backoff in seconds
 
     protected $messageData;
@@ -183,6 +184,7 @@ class DispatchMessage implements ShouldQueue
             'attempt' => $this->attempts(),
             'max_tries' => $this->tries,
             'error' => $e->getMessage(),
+            'error_type' => get_class($e),
             'duration_ms' => $duration
         ]);
 
