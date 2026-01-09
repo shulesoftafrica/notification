@@ -346,7 +346,7 @@ class NotificationController extends Controller
             if ($channel === 'sms') {
                 $smsBalance = $this->processBalance($schemaName);
                 $initialBalance = $smsBalance['balance'];
-                
+
                 if ($initialBalance <= 0) {
                     Log::warning('Insufficient SMS balance for resend', [
                         'schema_name' => $schemaName,
@@ -367,7 +367,7 @@ class NotificationController extends Controller
                 if ($channel === 'sms' && $dispatchMessage) {
                     $smscount = $this->countMessage($message->message);
                     $initialBalance -= $smscount;
-                    
+
                     if ($initialBalance <= 0) {
                         $shouldDispatch = false;
                     }
@@ -412,7 +412,7 @@ class NotificationController extends Controller
                     $totalResent++;
                 } else {
                     $totalSkipped++;
-                    
+
                     Log::info('Message resend skipped - no credit', [
                         'message_id' => $message->id,
                         'schema_name' => $schemaName,
@@ -446,9 +446,9 @@ class NotificationController extends Controller
                 'skipped_count' => $totalSkipped,
                 'results' => $resendResults
             ], 200);
-
         } catch (\Illuminate\Validation\ValidationException $e) {
             DB::rollBack();
+            Log::info('validation error resend', ['message' => $e->getMessage(), 'error' => $e->errors()]);
             return response()->json([
                 'success' => false,
                 'error' => 'Validation failed',
@@ -457,7 +457,7 @@ class NotificationController extends Controller
             ], 422);
         } catch (\Exception $e) {
             DB::rollBack();
-            
+
             Log::error('Failed to resend messages', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
@@ -522,6 +522,7 @@ class NotificationController extends Controller
                 'message_ids' => $messageIds
             ], 200);
         } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::info('validation error delete', ['message' => $e->getMessage(), 'error' => $e->errors()]);
             return response()->json([
                 'success' => false,
                 'error' => 'Validation failed',
@@ -891,6 +892,7 @@ class NotificationController extends Controller
             $result = $this->processBalance($request->schema_name);
             return response()->json($result);
         } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::info('validation error process balance', ['message' => $e->getMessage(), 'error' => $e->errors()]);
             return response()->json([
                 'success' => false,
                 'error' => 'Validation failed',

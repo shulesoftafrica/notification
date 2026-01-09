@@ -108,6 +108,7 @@ class SendBulkMessageRequest extends FormRequest
      */
     protected function failedValidation(Validator $validator)
     {
+        Log::info('validation error bulk message validation', ['error'=>$validator->errors()] );
         throw new HttpResponseException(
             response()->json([
                 'success' => false,

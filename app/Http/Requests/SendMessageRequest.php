@@ -6,6 +6,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Support\Facades\Log;
 
 class SendMessageRequest extends FormRequest
 {
@@ -43,7 +44,7 @@ class SendMessageRequest extends FormRequest
             'tags' => ['sometimes', 'array', 'max:10'],
             'tags.*' => ['string', 'max:50'],
             'provider' => ['sometimes', 'string', Rule::in(['twilio', 'whatsapp', 'sendgrid', 'mailgun', 'resend', 'beem', 'termii'])],
-            
+
             // Attachment validation - base64 encoded data
             'attachment' => ['nullable', 'string'], // Base64 encoded file content
             'attachment_name' => ['required_with:attachment', 'string', 'max:255'], // Original filename
@@ -97,11 +98,12 @@ class SendMessageRequest extends FormRequest
         ];
     }
 
-     /**
+    /**
      * Handle a failed validation attempt - FORCE JSON RESPONSE
      */
     protected function failedValidation(Validator $validator)
     {
+        Log::info('validation error single message validation', ['error' => $validator->errors()]);
         throw new HttpResponseException(
             response()->json([
                 'success' => false,
@@ -172,33 +174,38 @@ class SendMessageRequest extends FormRequest
             if ($this->channel === 'sms' && strlen($this->message) > 1600) {
                 $validator->errors()->add('message', 'SMS message too long. Maximum 1600 characters allowed');
             }
-            
+
             // Validate attachment for channel compatibility
             if ($this->filled('attachment')) {
                 // SMS doesn't support attachments
                 if ($this->channel === 'sms') {
                     $validator->errors()->add('attachment', 'Attachments are not supported for SMS channel');
                 }
-                
+
                 // Validate base64 encoding
                 if (!$this->isValidBase64($this->attachment)) {
                     $validator->errors()->add('attachment', 'Attachment must be valid base64 encoded data');
                 }
-                
+
                 // Validate file size (decode and check)
                 $decodedSize = strlen(base64_decode($this->attachment, true));
                 $maxSize = 10 * 1024 * 1024; // 10MB in bytes
                 if ($decodedSize > $maxSize) {
                     $validator->errors()->add('attachment', 'Attachment size must not exceed 10MB');
                 }
-                
+
                 // Validate file types for WhatsApp
                 if ($this->channel === 'whatsapp' && $this->filled('attachment_type')) {
                     $allowedMimes = [
-                        'image/jpeg', 'image/png', 'image/gif', 
-                        'application/pdf', 
-                        'video/mp4', 'video/webm', 
-                        'audio/mpeg', 'audio/ogg', 'audio/wav'
+                        'image/jpeg',
+                        'image/png',
+                        'image/gif',
+                        'application/pdf',
+                        'video/mp4',
+                        'video/webm',
+                        'audio/mpeg',
+                        'audio/ogg',
+                        'audio/wav'
                     ];
                     if (!in_array($this->attachment_type, $allowedMimes)) {
                         $validator->errors()->add('attachment_type', 'WhatsApp only supports images, PDF, videos, and audio files');
@@ -220,7 +227,7 @@ class SendMessageRequest extends FormRequest
         $data = preg_replace('/^data:\w+\/\w+;base64,/', '', $data);
         // Try to decode
         $decoded = base64_decode($data, true);
-        
+
         // Check if decoding was successful and re-encoding gives same result
         return $decoded !== false && base64_encode($decoded) === $data;
     }
@@ -232,12 +239,12 @@ class SendMessageRequest extends FormRequest
     {
         // Remove all non-digit characters except +
         $cleaned = preg_replace('/[^\d+]/', '', $phoneNumber);
-        
+
         // If it doesn't start with +, assume it's a US number
         if (!str_starts_with($cleaned, '+')) {
             $cleaned = '+1' . $cleaned;
         }
-        
+
         return $cleaned;
     }
 
@@ -256,7 +263,7 @@ class SendMessageRequest extends FormRequest
     public function validated($key = null, $default = null)
     {
         $validated = parent::validated($key, $default);
-        
+
         if ($key !== null) {
             return $validated;
         }
@@ -266,7 +273,7 @@ class SendMessageRequest extends FormRequest
         $validated['ip_address'] = $this->ip();
         $validated['user_agent'] = $this->userAgent();
         $validated['timestamp'] = now()->toISOString();
-        
+
         return $validated;
     }
 }
