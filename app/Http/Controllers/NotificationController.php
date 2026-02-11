@@ -114,7 +114,7 @@ class NotificationController extends Controller
             }
             // check sms balance before dispatching the queue if channel is sms (quick sms);
             $dispatchMessage = true;
-            if ($validated['channel'] === 'sms') {
+            if ($validated['channel'] === 'sms' && $validated['schema_name'] !== 'shulesoft') {
                 $smsBalance = $this->processBalance($validated['schema_name']);
                 $initialBalance = $smsBalance['balance'];
                 if ($initialBalance <= 0) { // 20
@@ -343,7 +343,7 @@ class NotificationController extends Controller
             $dispatchMessage = true;
             $initialBalance = 0;
 
-            if ($channel === 'sms') {
+            if ($channel === 'sms' && $schemaName != 'shulesoft') {
                 $smsBalance = $this->processBalance($schemaName);
                 $initialBalance = $smsBalance['balance'];
 
@@ -639,7 +639,7 @@ class NotificationController extends Controller
 
             // check sms balance before dispatching the queue if channel is sms (quick sms);
             $dispatchMessage = true;
-            if ($validated['channel'] === 'sms') {
+            if ($validated['channel'] === 'sms' && $validated['schema_name'] !== 'shulesoft') {
                 $smsBalance = $this->processBalance($validated['schema_name']);
                 $initialBalance = $smsBalance['balance'];
                 if ($initialBalance <= 0) { // 20
