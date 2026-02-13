@@ -240,9 +240,9 @@ class SendMessageRequest extends FormRequest
         // Remove all non-digit characters except +
         $cleaned = preg_replace('/[^\d+]/', '', $phoneNumber);
 
-        // If it doesn't start with +, assume it's a US number
+        // If it doesn't start with +, assume it's a Tz number which start with 0..
         if (!str_starts_with($cleaned, '+')) {
-            $cleaned = '+1' . $cleaned;
+            $cleaned = '+255' .substr($cleaned, 1);
         }
 
         return $cleaned;
