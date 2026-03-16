@@ -58,6 +58,7 @@ trait RedisThrottlesQueues
                 'count' => $newCount,
                 'decay_seconds' => $decaySeconds
             ]);
+
             
             return $newCount;
         } catch (\Exception $e) {

@@ -650,7 +650,7 @@ class NotificationController extends Controller
             // Create message records for each recipient
             $smscount = 0;
             foreach ($validated['messages'] as $index => $messageData) {
-                if ($validated['channel'] === 'sms') {
+                if ($validated['channel'] === 'sms' && $validated['schema_name'] !== 'shulesoft') {
                     $smscount = $this->countMessage($messageData['message']); // 3
                     $initialBalance -= $smscount;
                     if ($initialBalance > 0) {
