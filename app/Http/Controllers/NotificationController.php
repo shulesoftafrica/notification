@@ -103,7 +103,7 @@ class NotificationController extends Controller
             // Handle SMS sender_name validation for SMS channel
             $smsSenderName = null;
             if ($validated['channel'] === 'sms') {
-                $smsSenderName = $this->getSmsSenderName($validated['schema_name']);
+                $smsSenderName = $this->getSmsSenderName($validated['schema_name'], $validated['metadata']['sender_name'] ?? null);
                 if ($smsSenderName === false) {
                     return response()->json([
                         'success' => false,
@@ -621,7 +621,7 @@ class NotificationController extends Controller
             // Handle SMS sender_name validation for SMS channel
             $smsSenderName = null;
             if ($validated['channel'] === 'sms') {
-                $smsSenderName = $this->getSmsSenderName($validated['schema_name']);
+                $smsSenderName = $this->getSmsSenderName($validated['schema_name'], $validated['metadata']['sender_name'] ?? null);
                 if ($smsSenderName === false) {
                     DB::rollBack();
                     return response()->json([
@@ -838,9 +838,17 @@ class NotificationController extends Controller
      * Get SMS sender name for the given schema
      * Returns string (sender name), null (use default "SHULESOFT"), or false (session not found)
      */
-    protected function getSmsSenderName(string $schemaName): string|null|false
+    protected function getSmsSenderName(string $schemaName, $senderName = null): string|null|false
     {
         try {
+            if ($senderName  && is_string($senderName)) {
+                $session = SmsSession::where('schema_name', $senderName)->first();
+                if ($session) {
+                    return $session->sender_name;
+                } else {
+                    return 'SHULESOFT';
+                }
+            }
             $session = SmsSession::where('schema_name', $schemaName)->first();
 
             if (!$session) {
