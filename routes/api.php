@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Auth\AdminAuthController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\HealthController;
+use App\Http\Controllers\SmsSessionController;
 use App\Http\Controllers\WebhookController;
 use App\Http\Controllers\WaSenderSessionController;
 
@@ -146,6 +147,15 @@ Route::middleware(['api.auth'])->prefix('wasender')->group(function () {
     Route::put('/sessions/{id}', [WaSenderSessionController::class, 'updateSession']);
     Route::get('/sessions/{id}/qrcode', [WaSenderSessionController::class, 'getQRCode']);
     Route::delete('/sessions/{id}', [WaSenderSessionController::class, 'deleteSession']);
+});
+
+// SMS session management API
+Route::middleware(['api.auth'])->prefix('sms-sessions')->group(function () {
+    Route::get('/', [SmsSessionController::class, 'index']);
+    Route::post('/', [SmsSessionController::class, 'store']);
+    Route::get('/{id}', [SmsSessionController::class, 'show'])->whereNumber('id');
+    Route::match(['put', 'patch'], '/{id}', [SmsSessionController::class, 'update'])->whereNumber('id');
+    Route::delete('/{id}', [SmsSessionController::class, 'destroy'])->whereNumber('id');
 });
 
 // User info route (for authenticated users)

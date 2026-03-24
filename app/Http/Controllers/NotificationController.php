@@ -989,4 +989,8 @@ class NotificationController extends Controller
 
         return 0;
     }
+    public function handleResetPassword($request){
+        Log::info('handle reset password', $request);
+        return true;
+    }
 }
