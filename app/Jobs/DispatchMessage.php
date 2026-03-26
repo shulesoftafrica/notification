@@ -10,13 +10,15 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use App\Services\NotificationService;
 use App\Models\Message;
+use App\Traits\RedisThrottlesQueues;
 
 class DispatchMessage implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, RedisThrottlesQueues;
 
     public $timeout = 120;
-    public $tries = 3;
+    public $tries = 15; // Increased to accommodate throttle releases
+    public $maxExceptions = 5; // Only fail after 5 actual exceptions (not releases)
     public $backoff = [30, 60, 120]; // Exponential backoff in seconds
 
     protected $messageData;
@@ -51,6 +53,21 @@ class DispatchMessage implements ShouldQueue
                 'attempt' => $this->attempts(),
                 'has_attachment' => !empty($this->messageData['attachment'])
             ]);
+
+            // Determine provider and channel for throttling
+            $channel = $this->messageData['channel'] ?? $this->messageData['type'];
+            $provider = $this->messageData['provider'] ?? $this->getDefaultProvider($channel);
+
+            // Handle Redis throttling - release job with delay if throttled
+            if ($this->handleQueueThrottling($provider, $channel)) {
+                Log::info('Message dispatch job throttled and released with delay', [
+                    'message_id' => $this->messageId,
+                    'channel' => $channel,
+                    'provider' => $provider,
+                    'attempt' => $this->attempts()
+                ]);
+                return; // Job was released with delay, exit here
+            }
 
             // Update message status to sending if we have a message ID
             if ($this->messageId) {
@@ -167,6 +184,7 @@ class DispatchMessage implements ShouldQueue
             'attempt' => $this->attempts(),
             'max_tries' => $this->tries,
             'error' => $e->getMessage(),
+            'error_type' => get_class($e),
             'duration_ms' => $duration
         ]);
 
@@ -209,6 +227,21 @@ class DispatchMessage implements ShouldQueue
             'normal' => 'notifications',
             'low' => 'notifications-low',
             default => 'notifications'
+        };
+    }
+
+    /**
+     * Get default provider for channel
+     */
+    protected function getDefaultProvider(string $channel): string
+    {
+        $defaultProviders = config('notification.channels', []);
+        
+        return $defaultProviders[$channel]['default'] ?? match ($channel) {
+            'email' => 'resend',
+            'sms' => 'beem',
+            'whatsapp' => 'whatsapp',
+            default => 'unknown'
         };
     }
 

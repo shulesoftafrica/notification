@@ -295,11 +295,11 @@ class WhatsAppAdapter implements ProviderAdapterInterface
             if (str_starts_with($mimeType, 'image/')) {
                 $payload['imageUrl'] = $mediaUrl;
             } elseif (str_starts_with($mimeType, 'video/')) {
-                $payload['video_url'] = $mediaUrl;
+                $payload['videoUrl'] = $mediaUrl;
             } elseif (str_starts_with($mimeType, 'audio/')) {
-                $payload['audio_url'] = $mediaUrl;
+                $payload['audioUrl'] = $mediaUrl;
             } else {
-                $payload['document_url'] = $mediaUrl;
+                $payload['documentUrl'] = $mediaUrl;
             }
             
             // Caption can be added for non-audio files
@@ -323,16 +323,16 @@ class WhatsAppAdapter implements ProviderAdapterInterface
             $mediaType = $metadata['media_type'];
             switch ($mediaType) {
                 case 'image':
-                    $payload['image_url'] = $metadata['media_url'];
+                    $payload['imageUrl'] = $metadata['media_url'];
                     break;
                 case 'video':
-                    $payload['video_url'] = $metadata['media_url'];
+                    $payload['videoUrl'] = $metadata['media_url'];
                     break;
                 case 'document':
-                    $payload['document_url'] = $metadata['media_url'];
+                    $payload['documentUrl'] = $metadata['media_url']; 
                     break;
                 case 'audio':
-                    $payload['audio_url'] = $metadata['media_url'];
+                    $payload['audioUrl'] = $metadata['media_url'];
                     break;
             }
             // Remove text if media is present

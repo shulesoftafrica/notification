@@ -1,6 +1,6 @@
 # Notification Service — Complete API Reference
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Base URL:** `http://your-domain.com/api`  
 **Authentication:** API Key (all endpoints except Health)  
 **Last Updated:** March 26, 2026
@@ -16,22 +16,32 @@
 3. [Notification API](#3-notification-api)
    - [Send Single Notification](#31-send-single-notification)
    - [Send Bulk Notifications](#32-send-bulk-notifications)
-   - [Get Notification Status](#33-get-notification-status)
-   - [List Notifications](#34-list-notifications)
-4. [WaSender Session Management API](#4-wasender-session-management-api)
-   - [Create Session](#41-create-session)
-   - [List Sessions](#42-list-sessions)
-   - [Get Single Session](#43-get-single-session)
-   - [Connect Session & Get QR Code](#44-connect-session--get-qr-code)
-   - [Check Session Status](#45-check-session-status)
-   - [Update Session](#46-update-session)
-   - [Get QR Code](#47-get-qr-code)
-   - [Delete Session](#48-delete-session)
-5. [Webhook Receiver Endpoints](#5-webhook-receiver-endpoints)
-6. [Admin Authentication API](#6-admin-authentication-api)
-7. [Error Reference](#7-error-reference)
-8. [Field Validation Reference](#8-field-validation-reference)
-9. [Implementation Notes](#9-implementation-notes)
+   - [Resend Notifications](#33-resend-notifications)
+   - [Get Notification Status](#34-get-notification-status)
+   - [List Notifications](#35-list-notifications)
+   - [Bulk Delete Notifications](#36-bulk-delete-notifications)
+   - [Get SMS Balance](#37-get-sms-balance)
+4. [SMS Session Management API](#4-sms-session-management-api)
+   - [List SMS Sessions](#41-list-sms-sessions)
+   - [Create SMS Session](#42-create-sms-session)
+   - [Get SMS Session](#43-get-sms-session)
+   - [Update SMS Session](#44-update-sms-session)
+   - [Delete SMS Session](#45-delete-sms-session)
+5. [WaSender Session Management API](#5-wasender-session-management-api)
+   - [Create Session](#51-create-session)
+   - [List Sessions](#52-list-sessions)
+   - [Get Single Session](#53-get-single-session)
+   - [Connect Session & Get QR Code](#54-connect-session--get-qr-code)
+   - [Check Session Status](#55-check-session-status)
+   - [Update Session](#56-update-session)
+   - [Get QR Code](#57-get-qr-code)
+   - [Delete Session](#58-delete-session)
+6. [Rate Limiting & Throttling](#6-rate-limiting--throttling)
+7. [Webhook Receiver Endpoints](#7-webhook-receiver-endpoints)
+8. [Admin Authentication API](#8-admin-authentication-api)
+9. [Error Reference](#9-error-reference)
+10. [Field Validation Reference](#10-field-validation-reference)
+11. [Implementation Notes](#11-implementation-notes)
 
 ---
 
@@ -103,6 +113,8 @@ Also available at `GET /api/up`.
 ## 3. Notification API
 
 All Notification endpoints require API key authentication.
+
+> **Rate limiting applies** to `send`, `bulk/send`, and `resend`. See [Section 6](#6-rate-limiting--throttling) for details.
 
 ---
 
@@ -328,7 +340,88 @@ X-API-Key: your_api_key_here
 
 ---
 
-### 3.3 Get Notification Status
+### 3.3 Resend Notifications
+
+**`POST /api/notifications/resend`**
+
+Re-queues one or more previously sent messages. For SMS, automatically checks the schema's credit balance and skips messages if credit is exhausted.
+
+> **Rate limited:** 2 requests per second.
+
+#### Request Headers
+
+```
+Content-Type: application/json
+X-API-Key: your_api_key_here
+```
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `schema_name` | string | ✅ | Tenant/schema identifier |
+| `message_ids` | array | ✅ | Array of message IDs to resend (min 1) |
+| `message_ids[]` | integer | ✅ | Must be a valid existing message ID |
+| `scheduled_at` | datetime | — | ISO 8601 future timestamp for delivery |
+| `rate_limit` | integer | — | Max messages per minute for staggered dispatch |
+
+#### Example Request
+
+```json
+{
+  "schema_name": "client_tenant_demo",
+  "message_ids": [101, 102, 103],
+  "rate_limit": 30
+}
+```
+
+#### Response (200 OK — All resent)
+
+```json
+{
+  "success": true,
+  "message": "All messages have been resent successfully.",
+  "total_messages": 3,
+  "resent_count": 3,
+  "skipped_count": 0,
+  "results": [
+    { "message_id": 101, "status": "queued", "channel": "sms", "recipient": "+255712345678" },
+    { "message_id": 102, "status": "queued", "channel": "sms", "recipient": "+255712345679" },
+    { "message_id": 103, "status": "queued", "channel": "sms", "recipient": "+255712345680" }
+  ]
+}
+```
+
+#### Response (200 OK — Some skipped due to no credit)
+
+```json
+{
+  "success": true,
+  "message": "Some messages were skipped due to insufficient credit.",
+  "total_messages": 3,
+  "resent_count": 2,
+  "skipped_count": 1,
+  "results": [
+    { "message_id": 101, "status": "queued", "channel": "sms", "recipient": "+255712345678" },
+    { "message_id": 102, "status": "queued", "channel": "sms", "recipient": "+255712345679" },
+    { "message_id": 103, "status": "skipped_no_credit", "channel": "sms", "recipient": "+255712345680" }
+  ]
+}
+```
+
+#### Response (404 — No messages found)
+
+```json
+{
+  "success": false,
+  "error": "No messages found",
+  "message": "No messages found with provided IDs"
+}
+```
+
+---
+
+### 3.4 Get Notification Status
 
 **`GET /api/notifications/{id}`**
 
@@ -388,7 +481,7 @@ Retrieves the current status and details of a specific notification.
 
 ---
 
-### 3.4 List Notifications
+### 3.5 List Notifications
 
 **`GET /api/notifications`**
 
@@ -440,13 +533,297 @@ GET /api/notifications?channel=email&status=delivered&from=2026-03-01&per_page=5
 
 ---
 
-## 4. WaSender Session Management API
+### 3.6 Bulk Delete Notifications
+
+**`DELETE /api/notifications/bulk/delete`**
+
+Permanently deletes multiple notification records and their associated attachment files from storage.
+
+#### Request Headers
+
+```
+Content-Type: application/json
+X-API-Key: your_api_key_here
+```
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `message_ids` | array | ✅ | Array of message IDs to delete (min 1) |
+| `message_ids[]` | integer | ✅ | Must be a valid existing message ID |
+
+#### Example Request
+
+```json
+{
+  "message_ids": [101, 102, 103]
+}
+```
+
+#### Response (200 OK)
+
+```json
+{
+  "success": true,
+  "message": "Messages deleted successfully",
+  "deleted_count": 3,
+  "message_ids": [101, 102, 103]
+}
+```
+
+---
+
+### 3.7 Get SMS Balance
+
+**`POST /api/notifications/sms/balance`**
+
+Returns the SMS credit balance for a given schema, calculated from total purchased SMS minus total sent.
+
+#### Request Headers
+
+```
+Content-Type: application/json
+X-API-Key: your_api_key_here
+```
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `schema_name` | string | ✅ | Tenant/schema identifier |
+
+#### Example Request
+
+```json
+{
+  "schema_name": "client_tenant_demo"
+}
+```
+
+#### Response (200 OK)
+
+```json
+{
+  "total_sms": 5000,
+  "total_sms_sent": 3240,
+  "balance": 1760
+}
+```
+
+---
+
+## 4. SMS Session Management API
+
+All SMS session endpoints require API key authentication. SMS sessions configure the sender name and SMS provider used per schema/tenant.
+
+---
+
+### 4.1 List SMS Sessions
+
+**`GET /api/sms-sessions`**
+
+#### Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `schema_name` | string | Filter by schema name |
+| `provider` | string | Filter by provider: `beem`, `termii`, `twilio` |
+| `status` | string | Filter by `active` or `inactive` |
+| `search` | string | Search across `schema_name`, `sender_name`, `provider`, `status` |
+| `sort_by` | string | Column to sort by (default: `created_at`) |
+| `sort_direction` | string | `asc` or `desc` (default: `desc`) |
+| `per_page` | integer | Results per page (max 100, default: 20) |
+
+#### Response (200 OK)
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "schema_name": "client_tenant_demo",
+      "sender_name": "MYAPP",
+      "provider": "beem",
+      "status": "active",
+      "created_at": "2026-03-26T10:00:00Z",
+      "updated_at": "2026-03-26T10:00:00Z"
+    }
+  ],
+  "meta": {
+    "current_page": 1,
+    "per_page": 20,
+    "total": 5,
+    "last_page": 1
+  }
+}
+```
+
+---
+
+### 4.2 Create SMS Session
+
+**`POST /api/sms-sessions`**
+
+Creates a new SMS session for a schema. Each `schema_name` is enforced to have exactly one `sender_name` across all its sessions.
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `schema_name` | string | ✅ | Tenant identifier (max 255) |
+| `sender_name` | string | — | SMS sender ID shown to recipients (max 255) |
+| `provider` | string | — | `beem` (default), `termii`, or `twilio` |
+
+#### Example Request
+
+```json
+{
+  "schema_name": "client_tenant_demo",
+  "sender_name": "MYAPP",
+  "provider": "beem"
+}
+```
+
+#### Response (201 Created)
+
+```json
+{
+  "success": true,
+  "message": "SMS session created successfully",
+  "data": {
+    "id": 1,
+    "schema_name": "client_tenant_demo",
+    "sender_name": "MYAPP",
+    "provider": "beem",
+    "status": "active",
+    "created_at": "2026-03-26T10:00:00Z",
+    "updated_at": "2026-03-26T10:00:00Z"
+  }
+}
+```
+
+#### Response (422 — Sender name conflict)
+
+```json
+{
+  "success": false,
+  "error": "Validation failed",
+  "errors": {
+    "sender_name": ["Each schema_name must be associated with exactly one sender_name."]
+  }
+}
+```
+
+---
+
+### 4.3 Get SMS Session
+
+**`GET /api/sms-sessions/{id}`**
+
+#### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | integer | SMS session ID |
+
+#### Response (200 OK)
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "schema_name": "client_tenant_demo",
+    "sender_name": "MYAPP",
+    "provider": "beem",
+    "status": "active",
+    "created_at": "2026-03-26T10:00:00Z",
+    "updated_at": "2026-03-26T10:00:00Z"
+  }
+}
+```
+
+---
+
+### 4.4 Update SMS Session
+
+**`PUT /api/sms-sessions/{id}`** or **`PATCH /api/sms-sessions/{id}`**
+
+All fields are optional.
+
+#### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | integer | SMS session ID |
+
+#### Request Body (all fields optional)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `schema_name` | string | Tenant identifier (max 255) |
+| `sender_name` | string | SMS sender ID (max 255) |
+| `provider` | string | `beem`, `termii`, or `twilio` |
+| `status` | string | `active` or `inactive` |
+
+#### Example Request
+
+```json
+{
+  "status": "inactive"
+}
+```
+
+#### Response (200 OK)
+
+```json
+{
+  "success": true,
+  "message": "SMS session updated successfully",
+  "data": {
+    "id": 1,
+    "schema_name": "client_tenant_demo",
+    "sender_name": "MYAPP",
+    "provider": "beem",
+    "status": "inactive",
+    "created_at": "2026-03-26T10:00:00Z",
+    "updated_at": "2026-03-26T11:00:00Z"
+  }
+}
+```
+
+---
+
+### 4.5 Delete SMS Session
+
+**`DELETE /api/sms-sessions/{id}`**
+
+#### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | integer | SMS session ID |
+
+#### Response (200 OK)
+
+```json
+{
+  "success": true,
+  "message": "SMS session deleted successfully"
+}
+```
+
+---
+
+## 5. WaSender Session Management API
 
 All WaSender endpoints require API key authentication.
 
 ---
 
-### 4.1 Create Session
+### 5.1 Create Session
 
 **`POST /api/wasender/sessions/create`**
 
@@ -518,7 +895,7 @@ Creates a new WhatsApp session by registering it with the WaSender API and stori
 
 ---
 
-### 4.2 List Sessions
+### 5.2 List Sessions
 
 **`GET /api/wasender/sessions`**
 
@@ -546,7 +923,7 @@ Returns all stored WaSender sessions.
 
 ---
 
-### 4.3 Get Single Session
+### 5.3 Get Single Session
 
 **`GET /api/wasender/sessions/{id}`**
 
@@ -584,7 +961,7 @@ Returns full details of a specific session.
 
 ---
 
-### 4.4 Connect Session & Get QR Code
+### 5.4 Connect Session & Get QR Code
 
 **`POST /api/wasender/sessions/{id}/connect`**
 
@@ -623,7 +1000,7 @@ Initiates a WhatsApp connection for the session. Returns a QR code to scan.
 
 ---
 
-### 4.5 Check Session Status
+### 5.5 Check Session Status
 
 **`GET /api/wasender/sessions/{id}/status`**
 
@@ -661,7 +1038,7 @@ Retrieves the current connection status of a session from the WaSender API.
 
 ---
 
-### 4.6 Update Session
+### 5.6 Update Session
 
 **`PUT /api/wasender/sessions/{id}`**
 
@@ -721,7 +1098,7 @@ Updates an existing session's configuration. All fields are optional.
 
 ---
 
-### 4.7 Get QR Code
+### 5.7 Get QR Code
 
 **`GET /api/wasender/sessions/{id}/qrcode`**
 
@@ -757,7 +1134,7 @@ Retrieves a fresh QR code for an existing session.
 
 ---
 
-### 4.8 Delete Session
+### 5.8 Delete Session
 
 **`DELETE /api/wasender/sessions/{id}`**
 
@@ -785,7 +1162,111 @@ Deletes the session locally and removes it from the WaSender API.
 
 ---
 
-## 5. Webhook Receiver Endpoints
+## 6. Rate Limiting & Throttling
+
+Redis-based rate limiting is applied to notification send endpoints. Limits are configurable via environment variables.
+
+### Throttled Endpoints
+
+| Endpoint | Default Limit | Window |
+|----------|--------------|--------|
+| `POST /api/notifications/send` | 2 requests | per 1 second |
+| `POST /api/notifications/bulk/send` | 1 request | per 2 seconds |
+| `POST /api/notifications/resend` | 2 requests | per 1 second |
+
+Throttle limits are tracked by **API key** (when authenticated) or by **IP address** (fallback). Responses on all non-throttled requests include rate limit headers:
+
+```
+X-RateLimit-Limit: 2
+X-RateLimit-Remaining: 1
+X-RateLimit-Reset: 1743000001
+```
+
+### Rate Limit Exceeded Response (429)
+
+```json
+{
+  "success": false,
+  "error": "Rate limit exceeded",
+  "message": "Too many requests. Limit: 2 requests per 1 second(s)",
+  "retry_after": 1,
+  "limit": 2,
+  "remaining": 0,
+  "reset_at": 1743000001
+}
+```
+
+Headers returned with 429:
+
+```
+X-RateLimit-Limit: 2
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1743000001
+Retry-After: 1
+```
+
+### Check Throttling Status
+
+**`GET /api/throttling/status`** — No authentication required.
+
+Returns current rate limit counters for the calling API key or IP.
+
+#### Response (200 OK)
+
+```json
+{
+  "success": true,
+  "data": {
+    "single_notifications": {
+      "current_attempts": 1,
+      "max_attempts": 2,
+      "remaining": 1,
+      "reset_in_seconds": 0,
+      "reset_at": null
+    },
+    "bulk_notifications": {
+      "current_attempts": 0,
+      "max_attempts": 1,
+      "remaining": 1,
+      "reset_in_seconds": 0,
+      "reset_at": null
+    },
+    "identifier": "api_key",
+    "timestamp": "2026-03-26T10:00:00.000Z"
+  }
+}
+```
+
+### Clear Throttling (Admin)
+
+**`POST /api/throttling/clear`** — Requires admin authentication.
+
+Clears rate limit counters for the calling API key or IP.
+
+#### Response (200 OK)
+
+```json
+{
+  "success": true,
+  "message": "Throttling cleared successfully",
+  "keys_cleared": 2
+}
+```
+
+### Per-Provider Default Limits (configurable via `.env`)
+
+| Provider | Default Max req/s |
+|----------|------------------|
+| `resend` | 2 |
+| `sendgrid` | 10 |
+| `mailgun` | 100 |
+| `beem` | 10 |
+| `termii` | 10 |
+| `twilio` | configurable |
+
+---
+
+## 7. Webhook Receiver Endpoints
 
 These endpoints receive inbound delivery status events from messaging providers. **No authentication required** — verification is handled internally per provider.
 
@@ -832,7 +1313,7 @@ Returns the `hub_challenge` value if the token matches.
 
 ---
 
-## 6. Admin Authentication API
+## 8. Admin Authentication API
 
 Admin session management. These endpoints use session-based authentication (not API key).
 
@@ -861,20 +1342,21 @@ Admin session management. These endpoints use session-based authentication (not 
 
 ---
 
-## 7. Error Reference
+## 9. Error Reference
 
 ### HTTP Status Codes
 
 | Code | Meaning |
 |------|---------|
 | `200` | OK |
-| `201` | Created (single notification sent) |
+| `201` | Created (single notification sent, SMS session created) |
 | `202` | Accepted (bulk notifications queued) |
 | `400` | Bad Request (e.g. missing WaSender/SMS session) |
 | `401` | Unauthorized (missing or invalid API key) |
 | `403` | Forbidden |
 | `404` | Not Found |
 | `422` | Unprocessable Entity (validation failed) |
+| `429` | Too Many Requests (rate limit exceeded) |
 | `500` | Internal Server Error |
 | `503` | Service Unavailable (health check failed) |
 
@@ -913,10 +1395,15 @@ Admin session management. These endpoints use session-based authentication (not 
 | Validation failure | 422 | `"Validation failed"` |
 | Attachment processing failure | 500 | `"Failed to process attachment"` |
 | Bulk queue failure | 500 | `"Failed to queue bulk messages"` |
+| Resend failure | 500 | `"Failed to resend messages"` |
+| Rate limit exceeded | 429 | `"Rate limit exceeded"` |
+| SMS balance fetch failure | 500 | `"Failed to retrieve SMS balance"` |
+| SMS session create failure | 500 | `"Failed to create SMS session"` |
+| SMS session not found | 404 | `"SMS session not found"` |
 
 ---
 
-## 8. Field Validation Reference
+## 10. Field Validation Reference
 
 ### Allowed Values
 
@@ -924,6 +1411,10 @@ Admin session management. These endpoints use session-based authentication (not 
 
 **`provider`:** `twilio` | `whatsapp` | `sendgrid` | `mailgun` | `resend` | `beem` | `termii`  
 > Note: WaSender is **not** a `provider` value. To use WaSender for WhatsApp, set `"type": "wasender"`.
+
+**SMS session `provider`:** `beem` | `termii` | `twilio`
+
+**SMS session `status`:** `active` | `inactive`
 
 **`type`:** `wasender` | `official`
 
@@ -945,6 +1436,7 @@ Admin session management. These endpoints use session-based authentication (not 
 | `messages` (bulk) | min 1, max 1000 |
 | `batch_size` | 1–100 |
 | `rate_limit` | 1–1000 messages/min |
+| `message_ids` (resend/delete) | min 1, no documented upper limit |
 
 ### Supported Attachment MIME Types
 
@@ -961,7 +1453,7 @@ Attachments are stored in `storage/app/public/attachments/` with auto-generated 
 
 ---
 
-## 9. Implementation Notes
+## 11. Implementation Notes
 
 ### Multi-Tenancy via `schema_name`
 
@@ -1001,14 +1493,53 @@ Every notification and WaSender session request must include `schema_name`. This
 4. File extension is derived from the `attachment_type` MIME type
 5. Metadata (name, type, size, extension) is stored with the message record
 
+### Notification Response Fields
+
+The `data` object returned by notification endpoints includes the following fields:
+
+| Field | Present When | Description |
+|-------|-------------|-------------|
+| `id` | always | Message ID |
+| `channel` | always | `email`, `sms`, or `whatsapp` |
+| `recipient` | always | Recipient address |
+| `subject` | email only | Email subject |
+| `message` | always | Message body |
+| `schema_name` | always | Tenant identifier |
+| `status` | always | `pending`, `sent`, `delivered`, `failed`, `no_credit` |
+| `provider` | always | Provider used |
+| `priority` | always | Message priority |
+| `scheduled_at` | when scheduled | ISO 8601 timestamp |
+| `sent_at` | when sent | ISO 8601 timestamp |
+| `delivered_at` | when delivered | ISO 8601 timestamp |
+| `failed_at` | when failed | ISO 8601 timestamp |
+| `external_id` | always | Provider's message ID |
+| `error_message` | when `status=failed` | Error description |
+| `retry_count` | always | Number of send attempts |
+| `metadata` | when present | Custom key-value data |
+| `tags` | when present | Message labels |
+| `duration_ms` | always | Processing time in ms |
+| `is_scheduled` | always | Boolean computed flag |
+| `is_delivered` | always | Boolean computed flag |
+| `is_failed` | always | Boolean computed flag |
+| `delivery_status` | always | Human-readable status |
+| `formatted_duration` | always | e.g. `"245ms"` |
+| `created_at` | always | `Y-m-d H:i:s` |
+| `updated_at` | always | `Y-m-d H:i:s` |
+
 ### Queue Worker
 
-Bulk notifications require a queue worker to be running:
+Bulk notifications and resend operations require a queue worker to be running:
 
 ```bash
 php artisan queue:work
 ```
 
+### SMS Session Constraints
+
+- A `schema_name` must have **exactly one** `sender_name` across all its SMS sessions — attempting to create a second session with a different `sender_name` for the same schema returns a 422 validation error.
+- If a session's `sender_name` is `null`, the system falls back to the default sender ID (`SHULESOFT`).
+- The SMS balance check (used by `resend`) counts message units using multi-part SMS counting rules.
+
 ---
 
-*This document reflects the actual application implementation as of March 26, 2026.*
+*This document reflects the actual application implementation as of March 26, 2026. Updated after merge of 19 remote commits.*

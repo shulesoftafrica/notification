@@ -23,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'admin.auth' => \App\Http\Middleware\AdminAuthMiddleware::class,
             'api.auth' => \App\Http\Middleware\ApiAuthMiddleware::class,
             'rate.limit' => \App\Http\Middleware\RateLimitRequests::class,
+            'redis.throttle' => \App\Http\Middleware\RedisThrottleMiddleware::class,
             'production.security' => \App\Http\Middleware\ProductionSecurityMiddleware::class,
             'api.logging' => \App\Http\Middleware\ApiLoggingMiddleware::class,
         ]);

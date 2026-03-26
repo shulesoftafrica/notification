@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Auth\AdminAuthController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\HealthController;
+use App\Http\Controllers\SmsSessionController;
 use App\Http\Controllers\WebhookController;
 use App\Http\Controllers\WaSenderSessionController;
 
@@ -50,13 +51,23 @@ Route::middleware(['admin.auth'])->prefix('admin')->group(function () {
     });
 });
 
-// Notification API
-Route::post('/notifications/send', [NotificationController::class, 'send']);
+// Notification API with Redis throttling (2 requests per second)
+Route::middleware(['redis.throttle:2,1'])->group(function () {
+    Route::post('/notifications/send', [NotificationController::class, 'send']);
+    Route::post('/notifications/bulk/send', [NotificationController::class, 'sendBulk']);
+    Route::post('/notifications/resend', [NotificationController::class, 'resend']);
+
+});
+
+// Other notification routes without throttling
 Route::get('/notifications/{id}', [NotificationController::class, 'status']);
 Route::get('/notifications', [NotificationController::class, 'index']);
+Route::delete('/notifications/bulk/delete', [NotificationController::class, 'bulkDelete']);
+Route::post('/notifications/sms/balance', [NotificationController::class, 'getProcessBalance']);
 
-// Bulk Notification API (non-realtime)
-Route::post('/notifications/bulk/send', [NotificationController::class, 'sendBulk']);
+// Throttling management routes
+Route::get('/throttling/status', [App\Http\Controllers\ThrottlingController::class, 'status']);
+Route::middleware(['admin.auth'])->post('/throttling/clear', [App\Http\Controllers\ThrottlingController::class, 'clear']);
 
 
 // Route::any('/notifications/{path?}', [NotificationController::class, 'index'])->where('path', '.*');
@@ -127,7 +138,7 @@ Route::prefix('webhook')->group(function () {
 
 // WaSender WhatsApp Session Management API
 Route::middleware(['api.auth'])->prefix('wasender')->group(function () {
-    
+
     Route::post('/sessions/create', [WaSenderSessionController::class, 'createSession']);
     Route::get('/sessions', [WaSenderSessionController::class, 'getSessions']);
     Route::get('/sessions/{id}', [WaSenderSessionController::class, 'getSession']);
@@ -136,6 +147,15 @@ Route::middleware(['api.auth'])->prefix('wasender')->group(function () {
     Route::put('/sessions/{id}', [WaSenderSessionController::class, 'updateSession']);
     Route::get('/sessions/{id}/qrcode', [WaSenderSessionController::class, 'getQRCode']);
     Route::delete('/sessions/{id}', [WaSenderSessionController::class, 'deleteSession']);
+});
+
+// SMS session management API
+Route::middleware(['api.auth'])->prefix('sms-sessions')->group(function () {
+    Route::get('/', [SmsSessionController::class, 'index']);
+    Route::post('/', [SmsSessionController::class, 'store']);
+    Route::get('/{id}', [SmsSessionController::class, 'show'])->whereNumber('id');
+    Route::match(['put', 'patch'], '/{id}', [SmsSessionController::class, 'update'])->whereNumber('id');
+    Route::delete('/{id}', [SmsSessionController::class, 'destroy'])->whereNumber('id');
 });
 
 // User info route (for authenticated users)

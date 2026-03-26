@@ -33,7 +33,7 @@ class Message extends Model
         'webhook_attempts',
         'webhook_error',
         'webhook_failed_at',
-        'api_key',
+        'schema_name',
         'ip_address',
         'user_agent',
         'cost_amount',

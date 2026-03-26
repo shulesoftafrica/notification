@@ -13,7 +13,11 @@ class WaSenderSessionController extends Controller
 {
     /**
      * Create a new WhatsApp session by sending request to WaSender API
-     * and save the response to database
+     * and save the response to database.
+     *
+     * Before creating, checks whether the phone number already exists in WaSender.
+     * If it does, the session data is synced to the local database and a success
+     * response is returned without re-creating the session.
      *
      * @param Request $request
      * @return JsonResponse
@@ -43,24 +47,70 @@ class WaSenderSessionController extends Controller
         }
 
         try {
-            // Prepare request body for WaSender API
+            $accessToken = config('services.wasender.access_token');
+            $apiBaseUrl  = 'https://www.wasenderapi.com/api/whatsapp-sessions';
+            $phoneNumber = $request->input('phone_number');
+
+            // ------------------------------------------------------------------
+            // Step 1: Check whether the phone number is already registered in
+            //         WaSender before attempting to create a new session.
+            // ------------------------------------------------------------------
+            $existingSessionData = $this->fetchWaSenderSessionByPhone(
+                $phoneNumber,
+                $accessToken,
+                $apiBaseUrl
+            );
+
+            if ($existingSessionData !== null) {
+                // Phone already exists in WaSender — sync to local DB and return success.
+                Log::info('WaSender session already exists, syncing to local database', [
+                    'phone_number' => $phoneNumber,
+                    'wasender_id'  => $existingSessionData['id'] ?? null,
+                    'schema_name'  => $request->input('schema_name'),
+                ]);
+
+                $savedSession = WaSenderSession::updateOrCreate(
+                    ['phone_number' => $existingSessionData['phone_number']],
+                    [
+                        'schema_name'              => $request->input('schema_name'),
+                        'wasender_session_id'      => $existingSessionData['id'] ?? null,
+                        'name'                     => $existingSessionData['name'],
+                        'status'                   => $existingSessionData['status'] ?? 'disconnected',
+                        'account_protection'       => $existingSessionData['account_protection'] ?? true,
+                        'log_messages'             => $existingSessionData['log_messages'] ?? true,
+                        'read_incoming_messages'   => $existingSessionData['read_incoming_messages'] ?? false,
+                        'webhook_url'              => $existingSessionData['webhook_url'] ?? null,
+                        'webhook_enabled'          => $existingSessionData['webhook_enabled'] ?? false,
+                        'webhook_events'           => $existingSessionData['webhook_events'] ?? [],
+                        'api_key'                  => $existingSessionData['api_key'] ?? null,
+                        'webhook_secret'           => $existingSessionData['webhook_secret'] ?? null,
+                    ]
+                );
+
+                return response()->json([
+                    'success'              => true,
+                    'message'              => 'WhatsApp session already exists in WaSender and has been synced successfully',
+                    'data'                 => $savedSession,
+                    'synced_from_wasender' => true,
+                ], 201);
+            }
+
+            // ------------------------------------------------------------------
+            // Step 2: Phone not found in WaSender — create a new session.
+            // ------------------------------------------------------------------
             $requestBody = [
-                'name' => $request->input('name'),
-                'phone_number' => $request->input('phone_number'),
-                'account_protection' => $request->input('account_protection', true),
-                'log_messages' => $request->input('log_messages', true),
+                'name'                   => $request->input('name'),
+                'phone_number'           => $phoneNumber,
+                'account_protection'     => $request->input('account_protection', true),
+                'log_messages'           => $request->input('log_messages', true),
                 'read_incoming_messages' => $request->input('read_incoming_messages', false),
-                'webhook_url' => $request->input('webhook_url'),
-                'webhook_enabled' => $request->input('webhook_enabled', false),
-                'webhook_events' => $request->input('webhook_events', []),
+                'webhook_url'            => $request->input('webhook_url'),
+                'webhook_enabled'        => $request->input('webhook_enabled', false),
+                'webhook_events'         => $request->input('webhook_events', []),
             ];
 
-            // Make cURL request to WaSender API
-            $apiUrl = 'https://www.wasenderapi.com/api/whatsapp-sessions';
-            $accessToken = config('services.wasender.access_token');
-
             $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $apiUrl);
+            curl_setopt($ch, CURLOPT_URL, $apiBaseUrl);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_HTTPHEADER, [
@@ -70,8 +120,8 @@ class WaSenderSessionController extends Controller
             ]);
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($requestBody));
 
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $response  = curl_exec($ch);
+            $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
             $curlError = curl_error($ch);
             curl_close($ch);
 
@@ -79,7 +129,7 @@ class WaSenderSessionController extends Controller
             if ($curlError) {
                 Log::error('WaSender API cURL Error', [
                     'error' => $curlError,
-                    'url' => $apiUrl,
+                    'url'   => $apiBaseUrl,
                 ]);
                 throw new Exception('Failed to connect to WaSender API: ' . $curlError);
             }
@@ -89,7 +139,7 @@ class WaSenderSessionController extends Controller
 
             if (json_last_error() !== JSON_ERROR_NONE) {
                 Log::error('WaSender API Invalid JSON', [
-                    'response' => $response,
+                    'response'   => $response,
                     'json_error' => json_last_error_msg(),
                 ]);
                 throw new Exception('Invalid response from WaSender API');
@@ -99,7 +149,7 @@ class WaSenderSessionController extends Controller
             if ($httpCode >= 400) {
                 Log::error('WaSender API Error', [
                     'http_code' => $httpCode,
-                    'response' => $apiResponse,
+                    'response'  => $apiResponse,
                 ]);
                 throw new Exception(
                     $apiResponse['message'] ?? 'WaSender API returned error: ' . $httpCode,
@@ -112,31 +162,31 @@ class WaSenderSessionController extends Controller
                 $sessionData = $apiResponse['data'];
 
                 $savedSession = WaSenderSession::create([
-                    'schema_name' => $request->input('schema_name'),
-                    'wasender_session_id' => $sessionData['id'] ?? null,
-                    'name' => $sessionData['name'],
-                    'phone_number' => $sessionData['phone_number'],
-                    'status' => $sessionData['status'] ?? 'disconnected',
-                    'account_protection' => $sessionData['account_protection'] ?? true,
-                    'log_messages' => $sessionData['log_messages'] ?? true,
+                    'schema_name'            => $request->input('schema_name'),
+                    'wasender_session_id'    => $sessionData['id'] ?? null,
+                    'name'                   => $sessionData['name'],
+                    'phone_number'           => $sessionData['phone_number'],
+                    'status'                 => $sessionData['status'] ?? 'disconnected',
+                    'account_protection'     => $sessionData['account_protection'] ?? true,
+                    'log_messages'           => $sessionData['log_messages'] ?? true,
                     'read_incoming_messages' => $sessionData['read_incoming_messages'] ?? false,
-                    'webhook_url' => $sessionData['webhook_url'] ?? null,
-                    'webhook_enabled' => $sessionData['webhook_enabled'] ?? false,
-                    'webhook_events' => $sessionData['webhook_events'] ?? [],
-                    'api_key' => $sessionData['api_key'] ?? null,
-                    'webhook_secret' => $sessionData['webhook_secret'] ?? null,
+                    'webhook_url'            => $sessionData['webhook_url'] ?? null,
+                    'webhook_enabled'        => $sessionData['webhook_enabled'] ?? false,
+                    'webhook_events'         => $sessionData['webhook_events'] ?? [],
+                    'api_key'                => $sessionData['api_key'] ?? null,
+                    'webhook_secret'         => $sessionData['webhook_secret'] ?? null,
                 ]);
 
                 Log::info('WaSender session created and saved', [
-                    'local_id' => $savedSession->id,
+                    'local_id'    => $savedSession->id,
                     'wasender_id' => $savedSession->wasender_session_id,
                     'schema_name' => $savedSession->schema_name,
                 ]);
 
                 return response()->json([
-                    'success' => true,
-                    'message' => 'WhatsApp session created successfully',
-                    'data' => $savedSession,
+                    'success'      => true,
+                    'message'      => 'WhatsApp session created successfully',
+                    'data'         => $savedSession,
                     'api_response' => $apiResponse,
                 ], 201);
             }
@@ -153,9 +203,83 @@ class WaSenderSessionController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to create WhatsApp session',
-                'error' => $e->getMessage(),
+                'error'   => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Fetch a WaSender session by phone number from the WaSender API.
+     *
+     * Calls GET /api/whatsapp-sessions to retrieve all sessions, then matches
+     * against the supplied phone number (digits-only comparison to handle
+     * formatting differences such as spaces, dashes, or leading +).
+     *
+     * @param string $phoneNumber  The phone number to search for.
+     * @param string $accessToken  WaSender account-level access token.
+     * @param string $apiBaseUrl   Base URL of the WaSender sessions endpoint.
+     * @return array|null          Session data array if found, null otherwise.
+     * @throws Exception           If the cURL request itself fails.
+     */
+    private function fetchWaSenderSessionByPhone(
+        string $phoneNumber,
+        string $accessToken,
+        string $apiBaseUrl
+    ): ?array {
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $apiBaseUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPGET, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $accessToken,
+            'Accept: application/json',
+        ]);
+
+        $response  = curl_exec($ch);
+        $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        if ($curlError) {
+            Log::error('WaSender API cURL Error on session lookup', [
+                'error' => $curlError,
+                'url'   => $apiBaseUrl,
+            ]);
+            throw new Exception('Failed to connect to WaSender API: ' . $curlError);
+        }
+
+        if ($httpCode >= 400) {
+            // Non-fatal: unable to list sessions — fall through to creation.
+            Log::warning('WaSender API returned error during session lookup', [
+                'http_code' => $httpCode,
+            ]);
+            return null;
+        }
+
+        $apiResponse = json_decode($response, true);
+
+        if (
+            json_last_error() !== JSON_ERROR_NONE
+            || !isset($apiResponse['data'])
+            || !is_array($apiResponse['data'])
+        ) {
+            Log::warning('WaSender API unexpected response format during session lookup', [
+                'response' => $response,
+            ]);
+            return null;
+        }
+
+        // Normalize to digits-only for a format-agnostic comparison.
+        $normalizedSearch = preg_replace('/\D/', '', $phoneNumber);
+
+        foreach ($apiResponse['data'] as $session) {
+            $normalizedSession = preg_replace('/\D/', '', $session['phone_number'] ?? '');
+            if ($normalizedSession === $normalizedSearch) {
+                return $session;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -216,8 +340,14 @@ class WaSenderSessionController extends Controller
     public function connectSession(int $id): JsonResponse
     {
         try {
-            // Get session from database
-            $session = WaSenderSession::findOrFail($id);
+            $session = WaSenderSession::where('wasender_session_id', $id)->first();
+
+            if (!$session) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Session not found',
+                ], 404);
+            }
 
             if (!$session->wasender_session_id) {
                 return response()->json([
@@ -329,7 +459,14 @@ class WaSenderSessionController extends Controller
     {
         try {
             // Get session from database
-            $session = WaSenderSession::findOrFail($id);
+            $session = WaSenderSession::where('wasender_session_id', $id)->first();
+
+            if (!$session) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Session not found',
+                ], 404);
+            }
 
             if (!$session->api_key) {
                 return response()->json([
@@ -611,7 +748,14 @@ class WaSenderSessionController extends Controller
     {
         try {
             // Get session from database
-            $session = WaSenderSession::findOrFail($id);
+             $session = WaSenderSession::where('wasender_session_id', $id)->first();
+
+            if (!$session) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Session not found',
+                ], 404);
+            }
 
             if (!$session->wasender_session_id) {
                 return response()->json([
@@ -684,7 +828,6 @@ class WaSenderSessionController extends Controller
                     'session' => $session,
                     'qr_code' => $apiResponse['data']['qrCode'] ?? null,
                 ],
-                'api_response' => $apiResponse,
             ]);
 
         } catch (Exception $e) {
