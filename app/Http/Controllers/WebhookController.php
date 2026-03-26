@@ -87,7 +87,8 @@ class WebhookController extends Controller
                 'user_agent' => $request->userAgent()
             ]);
 
-            // Forward all requests to the specified endpoint
+            //check project tenant definition for instance id supplied as session_id (which is actually api_key), then extract webhook defined
+            
             try {
                 $webhookUrl = 'https://safarichat.africa/api/wasender/webhook/33991';
                 $data = $request->all();
