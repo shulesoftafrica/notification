@@ -35,7 +35,7 @@ class DispatchMessage implements ShouldQueue
         $this->priority = $priority;
         
         // Set queue priority
-      //  $this->onQueue($this->getQueueName($priority));
+                $this->onQueue($this->getQueueName($priority));
     }
 
     /**
@@ -60,6 +60,11 @@ class DispatchMessage implements ShouldQueue
 
             // Handle Redis throttling - release job with delay if throttled
             if ($this->handleQueueThrottling($provider, $channel)) {
+                if ($this->messageId) {
+                    // Job was re-queued with delay; keep DB status aligned with queue state.
+                    $this->updateMessageStatus('queued');
+                }
+
                 Log::info('Message dispatch job throttled and released with delay', [
                     'message_id' => $this->messageId,
                     'channel' => $channel,
@@ -191,7 +196,7 @@ class DispatchMessage implements ShouldQueue
         if ($this->messageId) {
             try {
                 Message::where('id', $this->messageId)->update([
-                    'status' => $this->attempts() >= $this->tries ? 'failed' : 'pending',
+                    'status' => $this->attempts() >= $this->tries ? 'failed' : 'queued',
                     'retry_count' => $this->attempts(),
                     'error_message' => $e->getMessage(),
                     'failed_at' => $this->attempts() >= $this->tries ? now() : null,
