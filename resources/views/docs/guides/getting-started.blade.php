@@ -151,13 +151,164 @@
                     <h3 class="text-xl font-semibold">WhatsApp</h3>
                 </div>
                 <p class="text-gray-700 mb-3">Options: Official API or WaSender (unofficial)</p>
-                <pre><code class="language-json">{
+
+                <!-- Parameter table -->
+                <div class="overflow-x-auto mb-4">
+                    <table class="w-full text-sm border border-gray-200 rounded">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="text-left px-3 py-2 border-b font-semibold">Field</th>
+                                <th class="text-left px-3 py-2 border-b font-semibold">Type</th>
+                                <th class="text-left px-3 py-2 border-b font-semibold">Required</th>
+                                <th class="text-left px-3 py-2 border-b font-semibold">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            <tr><td class="px-3 py-2"><code>schema_name</code></td><td class="px-3 py-2">string</td><td class="px-3 py-2 text-green-600 font-semibold">✅</td><td class="px-3 py-2">Tenant/schema identifier</td></tr>
+                            <tr class="bg-gray-50"><td class="px-3 py-2"><code>channel</code></td><td class="px-3 py-2">string</td><td class="px-3 py-2 text-green-600 font-semibold">✅</td><td class="px-3 py-2">Must be <code>"whatsapp"</code></td></tr>
+                            <tr><td class="px-3 py-2"><code>to</code></td><td class="px-3 py-2">string</td><td class="px-3 py-2 text-green-600 font-semibold">✅</td><td class="px-3 py-2">Recipient phone number in international format (e.g. <code>+255712345678</code>)</td></tr>
+                            <tr class="bg-gray-50"><td class="px-3 py-2"><code>message</code></td><td class="px-3 py-2">string</td><td class="px-3 py-2 text-green-600 font-semibold">✅</td><td class="px-3 py-2">Message body (max 4096 chars). Used as caption when sending media.</td></tr>
+                            <tr><td class="px-3 py-2"><code>type</code></td><td class="px-3 py-2">string</td><td class="px-3 py-2 text-gray-400">—</td><td class="px-3 py-2"><code>"wasender"</code> (unofficial, QR-based) or <code>"official"</code> (Meta WhatsApp API). Defaults to official if omitted.</td></tr>
+                            <tr class="bg-gray-50"><td class="px-3 py-2"><code>priority</code></td><td class="px-3 py-2">string</td><td class="px-3 py-2 text-gray-400">—</td><td class="px-3 py-2"><code>low</code>, <code>normal</code> (default), <code>high</code>, <code>urgent</code></td></tr>
+                            <tr><td class="px-3 py-2"><code>scheduled_at</code></td><td class="px-3 py-2">datetime</td><td class="px-3 py-2 text-gray-400">—</td><td class="px-3 py-2">ISO 8601 future timestamp to schedule delivery</td></tr>
+                            <tr class="bg-gray-50"><td class="px-3 py-2"><code>metadata</code></td><td class="px-3 py-2">object</td><td class="px-3 py-2 text-gray-400">—</td><td class="px-3 py-2">Custom key-value data stored with the message (max 10 keys). Also supports <code>media_type</code> + <code>media_url</code> for URL-based media.</td></tr>
+                            <tr><td class="px-3 py-2"><code>tags</code></td><td class="px-3 py-2">array</td><td class="px-3 py-2 text-gray-400">—</td><td class="px-3 py-2">String labels for the message (max 10, each max 50 chars)</td></tr>
+                            <tr class="bg-gray-50"><td class="px-3 py-2"><code>webhook_url</code></td><td class="px-3 py-2">string</td><td class="px-3 py-2 text-gray-400">—</td><td class="px-3 py-2">URL to receive delivery status callbacks</td></tr>
+                            <tr><td class="px-3 py-2"><code>attachment</code></td><td class="px-3 py-2">string</td><td class="px-3 py-2 text-gray-400">—</td><td class="px-3 py-2">Base64-encoded file content (with or without <code>data:mime/type;base64,</code> prefix, max 10 MB)</td></tr>
+                            <tr class="bg-gray-50"><td class="px-3 py-2"><code>attachment_name</code></td><td class="px-3 py-2">string</td><td class="px-3 py-2 text-yellow-600 font-semibold">✅ if attachment</td><td class="px-3 py-2">Original filename (e.g. <code>invoice.pdf</code>)</td></tr>
+                            <tr><td class="px-3 py-2"><code>attachment_type</code></td><td class="px-3 py-2">string</td><td class="px-3 py-2 text-yellow-600 font-semibold">✅ if attachment</td><td class="px-3 py-2">MIME type — see supported types below</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Supported MIME types for WhatsApp -->
+                <div class="mb-4 p-3 bg-purple-50 border border-purple-200 rounded text-sm">
+                    <p class="font-semibold text-purple-800 mb-1"><i class="fas fa-paperclip mr-1"></i>Supported attachment MIME types for WhatsApp</p>
+                    <ul class="text-purple-700 list-disc list-inside space-y-0.5">
+                        <li><strong>Images:</strong> <code>image/jpeg</code>, <code>image/png</code>, <code>image/gif</code></li>
+                        <li><strong>Documents:</strong> <code>application/pdf</code></li>
+                        <li><strong>Video:</strong> <code>video/mp4</code>, <code>video/webm</code></li>
+                        <li><strong>Audio:</strong> <code>audio/mpeg</code>, <code>audio/ogg</code>, <code>audio/wav</code></li>
+                    </ul>
+                </div>
+
+                <!-- Tab navigation for examples -->
+                <div class="mt-2">
+                    <div class="flex flex-wrap gap-1 mb-3" id="wa-tabs">
+                        <button onclick="waTab('text',this)" class="wa-tab-btn px-3 py-1 rounded text-xs font-medium transition bg-purple-600 text-white">Text</button>
+                        <button onclick="waTab('image',this)" class="wa-tab-btn px-3 py-1 rounded text-xs font-medium transition bg-gray-100 text-gray-700 hover:bg-gray-200">📷 Image</button>
+                        <button onclick="waTab('pdf',this)" class="wa-tab-btn px-3 py-1 rounded text-xs font-medium transition bg-gray-100 text-gray-700 hover:bg-gray-200">📄 PDF</button>
+                        <button onclick="waTab('video',this)" class="wa-tab-btn px-3 py-1 rounded text-xs font-medium transition bg-gray-100 text-gray-700 hover:bg-gray-200">🎬 Video</button>
+                        <button onclick="waTab('audio',this)" class="wa-tab-btn px-3 py-1 rounded text-xs font-medium transition bg-gray-100 text-gray-700 hover:bg-gray-200">🎵 Audio</button>
+                        <button onclick="waTab('media_url',this)" class="wa-tab-btn px-3 py-1 rounded text-xs font-medium transition bg-gray-100 text-gray-700 hover:bg-gray-200">🔗 URL Media</button>
+                    </div>
+
+                    <!-- Text -->
+                    <div id="wa-tab-text" class="wa-tab-panel">
+                        <pre><code class="language-json">{
+  "schema_name": "client_tenant_demo",
   "channel": "whatsapp",
   "to": "+255712345678",
-  "message": "Your WhatsApp message here",
-  "type": "wasender"
+  "message": "Hello! Your order has been confirmed.",
+  "type": "wasender",
+  "priority": "normal",
+  "metadata": { "order_id": "12345" },
+  "tags": ["order", "confirmation"],
+  "webhook_url": "https://your-app.com/webhook"
 }</code></pre>
-                <p class="text-sm text-gray-600 mt-2">
+                    </div>
+
+                    <!-- Image -->
+                    <div id="wa-tab-image" class="wa-tab-panel" style="display:none">
+                        <pre><code class="language-json">{
+  "schema_name": "client_tenant_demo",
+  "channel": "whatsapp",
+  "to": "+255712345678",
+  "message": "Here is your receipt image.",
+  "type": "wasender",
+  "attachment": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQE...",
+  "attachment_name": "receipt.jpg",
+  "attachment_type": "image/jpeg"
+}</code></pre>
+                        <p class="text-xs text-gray-500 mt-1">Supported: <code>image/jpeg</code>, <code>image/png</code>, <code>image/gif</code>. The <code>message</code> is used as the image caption.</p>
+                    </div>
+
+                    <!-- PDF -->
+                    <div id="wa-tab-pdf" class="wa-tab-panel" style="display:none">
+                        <pre><code class="language-json">{
+  "schema_name": "client_tenant_demo",
+  "channel": "whatsapp",
+  "to": "+255712345678",
+  "message": "Please find your invoice attached.",
+  "type": "wasender",
+  "attachment": "data:application/pdf;base64,JVBERi0xLjQ...",
+  "attachment_name": "invoice.pdf",
+  "attachment_type": "application/pdf"
+}</code></pre>
+                        <p class="text-xs text-gray-500 mt-1">PDF files are sent as documents. The <code>attachment_name</code> is shown as the file name in WhatsApp.</p>
+                    </div>
+
+                    <!-- Video -->
+                    <div id="wa-tab-video" class="wa-tab-panel" style="display:none">
+                        <pre><code class="language-json">{
+  "schema_name": "client_tenant_demo",
+  "channel": "whatsapp",
+  "to": "+255712345678",
+  "message": "Watch this product demo.",
+  "type": "wasender",
+  "attachment": "data:video/mp4;base64,AAAAIGZ0eXBpc28...",
+  "attachment_name": "demo.mp4",
+  "attachment_type": "video/mp4"
+}</code></pre>
+                        <p class="text-xs text-gray-500 mt-1">Supported: <code>video/mp4</code>, <code>video/webm</code>. The <code>message</code> is used as the video caption.</p>
+                    </div>
+
+                    <!-- Audio -->
+                    <div id="wa-tab-audio" class="wa-tab-panel" style="display:none">
+                        <pre><code class="language-json">{
+  "schema_name": "client_tenant_demo",
+  "channel": "whatsapp",
+  "to": "+255712345678",
+  "message": "Voice note for your delivery update.",
+  "type": "wasender",
+  "attachment": "data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0U...",
+  "attachment_name": "voice_note.mp3",
+  "attachment_type": "audio/mpeg"
+}</code></pre>
+                        <p class="text-xs text-gray-500 mt-1">Supported: <code>audio/mpeg</code>, <code>audio/ogg</code>, <code>audio/wav</code>. No caption is added for audio files.</p>
+                    </div>
+
+                    <!-- URL-based media -->
+                    <div id="wa-tab-media_url" class="wa-tab-panel" style="display:none">
+                        <pre><code class="language-json">{
+  "schema_name": "client_tenant_demo",
+  "channel": "whatsapp",
+  "to": "+255712345678",
+  "message": "Check out this image!",
+  "type": "official",
+  "metadata": {
+    "media_type": "image",
+    "media_url": "https://example.com/promo-banner.jpg"
+  }
+}</code></pre>
+                        <p class="text-xs text-gray-500 mt-1">Use <code>metadata.media_type</code> (<code>image</code>, <code>video</code>, <code>audio</code>, <code>document</code>) with <code>metadata.media_url</code> to reference publicly accessible media without uploading base64.</p>
+                    </div>
+                </div>
+                <script>
+                function waTab(name, btn) {
+                    document.querySelectorAll('.wa-tab-panel').forEach(function(el){ el.style.display = 'none'; });
+                    document.querySelectorAll('.wa-tab-btn').forEach(function(b){
+                        b.classList.remove('bg-purple-600','text-white');
+                        b.classList.add('bg-gray-100','text-gray-700');
+                    });
+                    document.getElementById('wa-tab-' + name).style.display = '';
+                    btn.classList.remove('bg-gray-100','text-gray-700');
+                    btn.classList.add('bg-purple-600','text-white');
+                    if (window.Prism) Prism.highlightAllUnder(document.getElementById('wa-tab-' + name));
+                }
+                </script>
+
+                <p class="text-sm text-gray-600 mt-3">
                     <i class="fas fa-info-circle mr-1"></i>
                     WaSender requires session setup with QR code authentication. See <a href="{{ route('docs.reference') }}#wasender-session-management" class="text-blue-600 hover:underline">WaSender Guide</a>.
                 </p>
