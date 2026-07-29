@@ -59,7 +59,7 @@ class NotificationController extends Controller
 
                     // Store file in storage/app/attachments
                     $attachmentPath = 'attachments/' . $filename;
-                    Storage::disk('public')->put($attachmentPath, $fileContent);
+                    Storage::disk('public_root')->put($attachmentPath, $fileContent);
 
                     // Save attachment metadata
                     $attachmentMetadata = [
