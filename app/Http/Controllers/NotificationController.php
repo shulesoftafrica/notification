@@ -36,7 +36,9 @@ class NotificationController extends Controller
     {
         try {
             $validated = $request->validated();
-
+            // set default value for whatsapp channel
+            $validated['type'] = $validated['type'] ?? 'wasender';
+            $validated['provider'] = $validated['provider'] ?? 'wasender';
             // Handle base64 encoded attachment
             $attachmentPath = null;
             $attachmentMetadata = null;
@@ -552,7 +554,9 @@ class NotificationController extends Controller
 
         try {
             $validated = $request->validated();
-
+            // set default value for whatsapp channel
+            $validated['type'] = $validated['type'] ?? 'wasender';
+            $validated['provider'] = $validated['provider'] ?? 'wasender';
             // Handle base64 encoded attachment (shared across all messages)
             $attachmentPath = null;
             $attachmentMetadata = null;
@@ -636,6 +640,7 @@ class NotificationController extends Controller
             $scheduledAt = isset($validated['scheduled_at']) ? Carbon::parse($validated['scheduled_at']) : now();
             $rateLimit = $validated['rate_limit'] ?? null;
             $priority = $validated['priority'] ?? 'normal';
+            $initialBalance = 0;
 
             // check sms balance before dispatching the queue if channel is sms (quick sms);
             $dispatchMessage = true;
@@ -989,7 +994,8 @@ class NotificationController extends Controller
 
         return 0;
     }
-    public function handleResetPassword($request){
+    public function handleResetPassword($request)
+    {
         Log::info('handle reset password', $request);
         return true;
     }
