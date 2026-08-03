@@ -25,6 +25,9 @@ use App\Http\Controllers\WaSenderSessionController;
 Route::get('/health', [HealthController::class, 'check']);
 Route::get('/up', [HealthController::class, 'check']);
 
+// Unified channel health check
+Route::get('/health-check', [HealthController::class, 'checkByChannel']);
+
 // Admin Authentication API
 Route::prefix('admin/auth')->group(function () {
     Route::post('/login', [AdminAuthController::class, 'login']);

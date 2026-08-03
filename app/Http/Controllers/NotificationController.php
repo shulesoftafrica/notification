@@ -925,7 +925,7 @@ class NotificationController extends Controller
             ], 500);
         }
     }
-    public function processBalance($schemaName)
+    public function processBalance(string $schemaName) : array
     {
         $result = [
             'total_sms' => 0,
