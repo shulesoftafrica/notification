@@ -38,7 +38,7 @@ class NotificationController extends Controller
             $validated = $request->validated();
             // set default value for whatsapp channel
             $validated['type'] = $validated['type'] ?? 'wasender';
-            $validated['provider'] = $validated['provider'] ?? 'wasender';
+            $validated['provider'] = $validated['type'] ?? 'wasender';
             // Handle base64 encoded attachment
             $attachmentPath = null;
             $attachmentMetadata = null;
@@ -94,6 +94,11 @@ class NotificationController extends Controller
             if ($this->isWasenderWhatsApp($validated)) {
                 $wasenderApiKey = $this->getWasenderApiKey($validated['schema_name']);
                 if (!$wasenderApiKey) {
+                    Log::info([
+                        'success' => false,
+                        'error' => 'WhatsApp session not found or API key unavailable',
+                        'message' => 'No active WhatsApp session found for client: ' . $validated['schema_name'] . ' Please reconnect again or contact shulesoft support'
+                    ]);
                     return response()->json([
                         'success' => false,
                         'error' => 'WhatsApp session not found or API key unavailable',
@@ -556,7 +561,7 @@ class NotificationController extends Controller
             $validated = $request->validated();
             // set default value for whatsapp channel
             $validated['type'] = $validated['type'] ?? 'wasender';
-            $validated['provider'] = $validated['provider'] ?? 'wasender';
+            $validated['provider'] = $validated['type'] ?? 'wasender';
             // Handle base64 encoded attachment (shared across all messages)
             $attachmentPath = null;
             $attachmentMetadata = null;
@@ -925,7 +930,7 @@ class NotificationController extends Controller
             ], 500);
         }
     }
-    public function processBalance(string $schemaName) : array
+    public function processBalance(string $schemaName): array
     {
         $result = [
             'total_sms' => 0,

@@ -22,19 +22,13 @@ class WhatsAppAdapter implements ProviderAdapterInterface
     public function send(string $to, string $message, ?string $subject = null, array $metadata = []): ProviderResponse
     {
         $startTime = microtime(true);
-
+        $whatsappType = $metadata['type'] ?? $this->config['type'] ?? 'official';
         try {
-            // Determine which WhatsApp service to use based on type in metadata or provider type
-            $whatsappType = $metadata['type'] ?? $this->config['type'] ?? 'official';
-            // Check for attachment in metadata
-            $attachment = $metadata['attachment'] ?? null;
-            $attachmentMetadata = $metadata['attachment_metadata'] ?? null;
-            
             if ($whatsappType === 'wasender' || $this->providerType === 'wasender') {
-                return $this->sendViaWasender($to, $message, $metadata, $startTime, $attachment, $attachmentMetadata);
-            } else {
-                return $this->sendViaWhatsAppAPI($to, $message, $metadata, $startTime, $attachment, $attachmentMetadata);
+                return $this->sendViaWasender($to, $message, $metadata, $startTime, $metadata['attachment'] ?? null, $metadata['attachment_metadata'] ?? null);
             }
+
+            return $this->sendViaOfficialMeta($to, $message, $metadata, $startTime);
         } catch (\Exception $e) {
             Log::error('WhatsApp sending failed', [
                 'error' => $e->getMessage(),
@@ -52,65 +46,52 @@ class WhatsAppAdapter implements ProviderAdapterInterface
     }
 
     /**
-     * Send message via WhatsApp Business API
+     * Send message via the approved Meta WhatsApp Business API flow.
+     * This project only supports the OTP template structure for official WhatsApp.
      */
-    protected function sendViaWhatsAppAPI(string $to, string $message, array $metadata, float $startTime, ?string $attachment = null, ?array $attachmentMetadata = null): ProviderResponse
+    protected function sendViaOfficialMeta(string $to, string $message, array $metadata, float $startTime): ProviderResponse
     {
-        $accessToken = $this->config['access_token'];
-        $phoneNumberId = $this->config['phone_number_id'];
-        $apiVersion = $this->config['api_version'] ?? 'v18.0';
+        Log::info('Sending via official Meta WhatsApp API', [
+            'to' => $to,
+            'message' => $message,
+            'metadata' => $metadata
+        ]);
+        $service = app(\App\Services\MetaWhatsAppService::class);
 
-        // Clean phone number (remove + and non-digits)
-        $phoneNumber = preg_replace('/[^\d]/', '', $to);
+        $otpCode = $metadata['otp_code'] ?? $message;
+        $otpCode2 = $metadata['otp_code_2'] ?? null;
 
-        $payload = [
-            'messaging_product' => 'whatsapp',
-            'to' => $phoneNumber,
-            'type' => 'text',
-            'text' => [
-                'preview_url' => false,
-                'body' => $message
-            ]
-        ];
 
-        // Handle template messages if specified
-        if (!empty($metadata['template_name'])) {
-            $payload = $this->buildTemplateMessage($phoneNumber, $metadata);
+
+        if ((!empty($metadata['template']) && $metadata['template'] =='otp_template') || !empty($metadata['otp_code'])) { // This indicates that we want to send an OTP template message instead of a regular text message
+            $response = $service->sendOtpTemplate($to, $otpCode, $otpCode2);
+        } else {
+            $response = $service->sendTextMessage($to, $message);
         }
-
-        // Handle attachment if provided
-        if ($attachment && $attachmentMetadata) {
-            $payload = $this->buildMediaMessageFromAttachment($phoneNumber, $message, $attachment, $attachmentMetadata);
-        }
-        // Handle media messages from metadata (backward compatibility)
-        elseif (!empty($metadata['media_type']) && !empty($metadata['media_url'])) {
-            $payload = $this->buildMediaMessage($phoneNumber, $message, $metadata);
-        }
-
-        $response = Http::withHeaders([
-            'Authorization' => 'Bearer ' . $accessToken,
-            'Content-Type' => 'application/json'
-        ])->post("https://graph.facebook.com/{$apiVersion}/{$phoneNumberId}/messages", $payload);
 
         $responseTime = $this->getResponseTime($startTime);
 
-        if ($response->successful()) {
-            $data = $response->json();
-            
+        if (($response['success'] ?? false) === true) {
+            $messageId = $response['data']['messages'][0]['id'] ?? uniqid('meta_');
+
             return ProviderResponse::success(
                 'whatsapp',
-                $data['messages'][0]['id'],
+                $messageId,
                 [
-                    'contacts' => $data['contacts'],
-                    'response_code' => $response->status()
+                    'via' => 'meta',
+                    'response_code' => 200,
+                    'raw_response' => $response,
                 ],
-                $this->getCost($phoneNumber, $message),
+                $this->getCost($to, $message),
                 $responseTime
             );
         }
 
-        $error = $response->json()['error']['message'] ?? 'Unknown error';
-        return ProviderResponse::failure('whatsapp', $error, [], $responseTime);
+        $error = $response['error'] ?? 'Unknown Meta WhatsApp error';
+        return ProviderResponse::failure('whatsapp', $error, [
+            'via' => 'meta',
+            'raw_response' => $response,
+        ], $responseTime);
     }
 
     /**
