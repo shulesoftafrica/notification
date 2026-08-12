@@ -37,7 +37,7 @@ class SendMessageRequest extends FormRequest
             'template_data' => ['nullable', 'array'],
             'template_data.*' => ['string', 'max:1000'],
             'metadata' => ['sometimes', 'array', 'max:10'],
-            'metadata.*' => ['string', 'max:500'],
+            'metadata.*' => ['max:500'],
             'sender_name' => ['sometimes', 'string', 'max:50'],
             'type' => ['sometimes', 'string', Rule::in(['official', 'wasender'])], // WhatsApp provider type
             'webhook_url' => ['sometimes', 'url', 'max:2048'],
