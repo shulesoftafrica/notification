@@ -7,6 +7,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Log;
+use App\Services\EmailFilterService;
 
 class SendBulkMessageRequest extends FormRequest
 {
@@ -178,21 +179,36 @@ class SendBulkMessageRequest extends FormRequest
                     }
                 }
 
-                // Additional validation for email addresses
-                if ($this->channel === 'email') {
-                    if (!filter_var($to, FILTER_VALIDATE_EMAIL)) {
-                        $validator->errors()->add(
-                            "messages.{$index}.to",
-                            'Invalid email address format'
-                        );
-                    }
-                }
-
                 // Validate message length for SMS
                 if ($this->channel === 'sms' && isset($message['message']) && strlen($message['message']) > 1600) {
                     $validator->errors()->add(
                         "messages.{$index}.message",
                         'SMS message too long. Maximum 1600 characters allowed'
+                    );
+                }
+            }
+
+            // Email recipients are filtered rather than rejected: one bad
+            // address must not fail a batch of up to 1000 messages. The
+            // controller skips the blocked ones and reports them back. We only
+            // fail the request when there is nothing left to send.
+            if ($this->channel === 'email') {
+                $blocked = app(EmailFilterService::class)
+                    ->partition(array_column($this->messages ?? [], 'to'))['blocked'];
+
+                if (!empty($blocked)) {
+                    Log::info('Bulk email recipients rejected by filter', [
+                        'blocked_count' => count($blocked),
+                        'total' => count($this->messages ?? []),
+                        'blocked' => array_slice($blocked, 0, 50),
+                        'schema_name' => $this->input('schema_name'),
+                    ]);
+                }
+
+                if (!empty($this->messages) && count($blocked) === count($this->messages)) {
+                    $validator->errors()->add(
+                        'messages',
+                        'No valid email recipients in this request. ' . $blocked[0]['reason']
                     );
                 }
             }

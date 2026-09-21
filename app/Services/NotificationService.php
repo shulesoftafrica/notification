@@ -8,21 +8,25 @@ use Illuminate\Support\Str;
 use App\Services\ProviderFailoverService;
 use App\Services\MetricsService;
 use App\Services\AnalyticsService;
+use App\Services\EmailFilterService;
 
 class NotificationService
 {
     protected $failoverService;
     protected $metricsService;
     protected $analyticsService;
+    protected $emailFilter;
 
     public function __construct(
         ProviderFailoverService $failoverService,
         MetricsService $metricsService,
-        AnalyticsService $analyticsService
+        AnalyticsService $analyticsService,
+        EmailFilterService $emailFilter
     ) {
         $this->failoverService = $failoverService;
         $this->metricsService = $metricsService;
         $this->analyticsService = $analyticsService;
+        $this->emailFilter = $emailFilter;
     }
 
     /**
@@ -31,11 +35,23 @@ class NotificationService
     public function send($data)
     {
         $messageId = Str::uuid();
-      
+
         try {
             // Validate and prepare data
             $preparedData = $this->prepareNotificationData($data);
-            
+
+            // Last line of defence before a provider is contacted: never send
+            // email to an address that fails the outbound recipient filter.
+            if (($preparedData['channel'] ?? null) === 'email') {
+                $check = $this->emailFilter->check($preparedData['to']);
+
+                if (!$check['allowed']) {
+                    return $this->blockEmailRecipient($messageId, $preparedData, $check);
+                }
+
+                $preparedData['to'] = $check['email'];
+            }
+
             // Store notification log
             $logId = $this->storeNotificationLog($messageId, $preparedData);
             
@@ -75,6 +91,45 @@ class NotificationService
             
             throw $e;
         }
+    }
+
+    /**
+     * Record a recipient rejected by the email filter and return a terminal
+     * result. Deliberately not an exception: there is nothing to retry.
+     */
+    protected function blockEmailRecipient($messageId, array $preparedData, array $check)
+    {
+        Log::warning('Email recipient blocked by filter - not sent', [
+            'message_id' => (string) $messageId,
+            'to' => $check['email'],
+            'domain' => $check['domain'],
+            'code' => $check['code'],
+            'reason' => $check['reason'],
+            'schema_name' => $preparedData['metadata']['schema_name'] ?? null,
+        ]);
+
+        try {
+            $logId = $this->storeNotificationLog($messageId, $preparedData);
+            $this->updateNotificationLog($logId, [
+                'status' => 'blocked',
+                'error' => $check['reason'],
+                'provider_response' => ['filter_code' => $check['code']],
+            ], null);
+        } catch (\Exception $e) {
+            Log::error('Failed to log blocked email recipient', [
+                'message_id' => (string) $messageId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return [
+            'message_id' => $messageId,
+            'status' => 'blocked',
+            'provider' => null,
+            'estimated_delivery' => null,
+            'error' => $check['reason'],
+            'filter_code' => $check['code'],
+        ];
     }
 
     /**

@@ -7,6 +7,7 @@ use App\Http\Requests\SendMessageRequest;
 use App\Http\Requests\SendBulkMessageRequest;
 use App\Http\Resources\MessageResource;
 use App\Services\NotificationService;
+use App\Services\EmailFilterService;
 use App\Models\Message;
 use App\Models\WaSenderSession;
 use App\Models\SmsSession;
@@ -21,10 +22,12 @@ use Carbon\Carbon;
 class NotificationController extends Controller
 {
     protected $notificationService;
+    protected $emailFilter;
 
-    public function __construct(NotificationService $notificationService)
+    public function __construct(NotificationService $notificationService, EmailFilterService $emailFilter)
     {
         $this->notificationService = $notificationService;
+        $this->emailFilter = $emailFilter;
         $this->middleware('api.auth');
     }
 
@@ -367,11 +370,25 @@ class NotificationController extends Controller
             $rateLimit = $request->rate_limit ?? null;
 
             // Process each message
+            $totalBlocked = 0;
+
             foreach ($messages as $index => $message) {
                 $shouldDispatch = $dispatchMessage;
+                $blockedReason = null;
+
+                // Never resend to an email address that fails the outbound
+                // filter, even if the original send predates the filter.
+                if ($message->channel === 'email') {
+                    $emailCheck = $this->emailFilter->check($message->recipient);
+
+                    if (!$emailCheck['allowed']) {
+                        $shouldDispatch = false;
+                        $blockedReason = $emailCheck['reason'];
+                    }
+                }
 
                 // For SMS, check balance for each message
-                if ($channel === 'sms' && $dispatchMessage) {
+                if ($channel === 'sms' && $shouldDispatch) {
                     $smscount = $this->countMessage($message->message);
                     $initialBalance -= $smscount;
 
@@ -382,10 +399,10 @@ class NotificationController extends Controller
 
                 // Reset message status
                 $message->update([
-                    'status' => $shouldDispatch ? 'pending' : 'no_credit',
+                    'status' => $shouldDispatch ? 'pending' : ($blockedReason ? 'blocked' : 'no_credit'),
                     'sent_at' => null,
                     'failed_at' => null,
-                    'error_message' => null,
+                    'error_message' => $blockedReason,
                 ]);
 
                 if ($shouldDispatch) {
@@ -420,18 +437,24 @@ class NotificationController extends Controller
                 } else {
                     $totalSkipped++;
 
-                    Log::info('Message resend skipped - no credit', [
+                    if ($blockedReason) {
+                        $totalBlocked++;
+                    }
+
+                    Log::info($blockedReason ? 'Message resend skipped - blocked recipient' : 'Message resend skipped - no credit', [
                         'message_id' => $message->id,
                         'schema_name' => $schemaName,
-                        'channel' => $channel
+                        'channel' => $message->channel,
+                        'reason' => $blockedReason
                     ]);
                 }
 
                 $resendResults[] = [
                     'message_id' => $message->id,
-                    'status' => $shouldDispatch ? 'queued' : 'skipped_no_credit',
+                    'status' => $shouldDispatch ? 'queued' : ($blockedReason ? 'skipped_blocked_recipient' : 'skipped_no_credit'),
                     'channel' => $message->channel,
-                    'recipient' => $message->recipient
+                    'recipient' => $message->recipient,
+                    'reason' => $blockedReason,
                 ];
             }
 
@@ -441,16 +464,22 @@ class NotificationController extends Controller
                 'total_messages' => count($messageIds),
                 'resent' => $totalResent,
                 'skipped' => $totalSkipped,
+                'blocked_recipients' => $totalBlocked,
                 'schema_name' => $schemaName,
                 'channel' => $channel
             ]);
 
             return response()->json([
                 'success' => true,
-                'message' => $totalSkipped > 0 ? 'Some messages were skipped due to insufficient credit.' : 'All messages have been resent successfully.',
+                'message' => $totalSkipped > 0
+                    ? ($totalBlocked > 0
+                        ? 'Some messages were skipped - invalid or blocked recipients, or insufficient credit.'
+                        : 'Some messages were skipped due to insufficient credit.')
+                    : 'All messages have been resent successfully.',
                 'total_messages' => count($messageIds),
                 'resent_count' => $totalResent,
                 'skipped_count' => $totalSkipped,
+                'blocked_count' => $totalBlocked,
                 'results' => $resendResults
             ], 200);
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -659,6 +688,7 @@ class NotificationController extends Controller
 
             // Create message records for each recipient
             $smscount = 0;
+            $blockedRecipients = [];
             foreach ($validated['messages'] as $index => $messageData) {
                 if ($validated['channel'] === 'sms' && $validated['schema_name'] !== 'shulesoft') {
                     $smscount = $this->countMessage($messageData['message']); // 3
@@ -669,13 +699,33 @@ class NotificationController extends Controller
                         $dispatchMessage = false;
                     }
                 }
+
+                // Skip email recipients that fail the outbound filter (invalid
+                // format, blocked domain such as shulesoft.com, or a blocked
+                // extension). They are recorded but never queued.
+                $emailCheck = null;
+                if ($validated['channel'] === 'email') {
+                    $emailCheck = $this->emailFilter->check($messageData['to']);
+
+                    if (!$emailCheck['allowed']) {
+                        $blockedRecipients[] = [
+                            'index' => $index,
+                            'recipient' => $emailCheck['email'],
+                            'code' => $emailCheck['code'],
+                            'reason' => $emailCheck['reason'],
+                        ];
+                    }
+                }
+                $recipientBlocked = $emailCheck !== null && !$emailCheck['allowed'];
+
                 // Create message record (similar to send() method)
                 $message = Message::create([
                     'channel' => $validated['channel'],
                     'recipient' => $messageData['to'],
                     'subject' => $messageData['subject'] ?? null,
                     'message' => $messageData['message'],
-                    'status' => $dispatchMessage ? 'pending' : 'no_credit',
+                    'status' => $recipientBlocked ? 'blocked' : ($dispatchMessage ? 'pending' : 'no_credit'),
+                    'error_message' => $recipientBlocked ? $emailCheck['reason'] : null,
                     'priority' => $priority,
                     'scheduled_at' => $scheduledAt,
                     'metadata' => array_merge(
@@ -695,7 +745,7 @@ class NotificationController extends Controller
                     'attachment' => $attachmentPath,
                     'attachment_metadata' => $attachmentMetadata,
                 ]);
-                if ($dispatchMessage) {
+                if ($dispatchMessage && !$recipientBlocked) {
                     // Calculate delay for rate limiting
                     $delay = 0;
                     if ($rateLimit && $index > 0) {
@@ -740,21 +790,31 @@ class NotificationController extends Controller
 
             DB::commit();
 
+            $queuedCount = count($createdMessages) - count($blockedRecipients);
+
             Log::info('Bulk messages created and queued', [
                 'channel' => $validated['channel'],
                 'total_count' => count($createdMessages),
+                'queued_count' => $queuedCount,
+                'skipped_count' => count($blockedRecipients),
                 'priority' => $priority,
             ]);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Bulk messages queued successfully',
+                'message' => empty($blockedRecipients)
+                    ? 'Bulk messages queued successfully'
+                    : 'Bulk messages queued successfully. Some recipients were skipped as invalid or blocked.',
                 'total_count' => count($createdMessages),
+                'queued_count' => $queuedCount,
+                'skipped_count' => count($blockedRecipients),
                 'status' => 'pending',
                 'scheduled_at' => $scheduledAt,
                 'data' => [
                     'channel' => $validated['channel'],
                     'total_count' => count($createdMessages),
+                    'queued_count' => $queuedCount,
+                    'skipped_recipients' => $blockedRecipients,
                     'priority' => $priority,
                     'scheduled_at' => $scheduledAt,
                     'message_ids' => array_map(fn($msg) => $msg->id, $createdMessages),

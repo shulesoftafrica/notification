@@ -7,6 +7,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Log;
+use App\Services\EmailFilterService;
 
 class SendMessageRequest extends FormRequest
 {
@@ -158,10 +159,20 @@ class SendMessageRequest extends FormRequest
                 }
             }
 
-            // Additional validation for email addresses
+            // Additional validation for email addresses - format plus the
+            // outbound recipient filter (blocked domains/extensions).
             if ($this->channel === 'email') {
-                if (!filter_var($this->to, FILTER_VALIDATE_EMAIL)) {
-                    $validator->errors()->add('to', 'Invalid email address format');
+                $check = app(EmailFilterService::class)->check($this->to);
+
+                if (!$check['allowed']) {
+                    Log::info('Email recipient rejected by filter', [
+                        'to' => $check['email'],
+                        'code' => $check['code'],
+                        'reason' => $check['reason'],
+                        'schema_name' => $this->input('schema_name'),
+                    ]);
+
+                    $validator->errors()->add('to', $check['reason']);
                 }
             }
 

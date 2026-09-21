@@ -4,6 +4,7 @@ namespace App\Services\Adapters;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use App\Services\EmailFilterService;
 
 class EmailAdapter implements ProviderAdapterInterface
 {
@@ -24,10 +25,32 @@ class EmailAdapter implements ProviderAdapterInterface
         $startTime = microtime(true);
 
         try {
+            // Final guard - no provider call for a filtered recipient, whoever
+            // the caller is. See config/email_filter.php.
+            $check = app(EmailFilterService::class)->check($to);
+
+            if (!$check['allowed']) {
+                Log::warning('Email not sent - recipient blocked by filter', [
+                    'provider' => $this->provider,
+                    'to' => $check['email'],
+                    'code' => $check['code'],
+                    'reason' => $check['reason'],
+                ]);
+
+                return ProviderResponse::failure(
+                    $this->provider,
+                    $check['reason'],
+                    ['filter_code' => $check['code']],
+                    $this->getResponseTime($startTime)
+                );
+            }
+
+            $to = $check['email'];
+
             // Extract attachment info from metadata
             $attachment = $metadata['attachment'] ?? null;
             $attachmentMetadata = $metadata['attachment_metadata'] ?? null;
-            
+
             switch ($this->provider) {
                 case 'resend':
                     return $this->sendViaResend($to, $message, $subject, $metadata, $startTime, $attachment, $attachmentMetadata);

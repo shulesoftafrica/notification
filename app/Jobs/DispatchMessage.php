@@ -9,6 +9,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use App\Services\NotificationService;
+use App\Services\EmailFilterService;
 use App\Models\Message;
 use App\Traits\RedisThrottlesQueues;
 
@@ -57,6 +58,31 @@ class DispatchMessage implements ShouldQueue
             // Determine provider and channel for throttling
             $channel = $this->messageData['channel'] ?? $this->messageData['type'];
             $provider = $this->messageData['provider'] ?? $this->getDefaultProvider($channel);
+
+            // Drop email to filtered recipients before throttling or sending.
+            // This is terminal - no exception, so the job is not retried.
+            if ($channel === 'email') {
+                $check = app(EmailFilterService::class)->check($this->messageData['to'] ?? null);
+
+                if (!$check['allowed']) {
+                    Log::warning('Message dispatch skipped - blocked email recipient', [
+                        'message_id' => $this->messageId,
+                        'to' => $check['email'],
+                        'code' => $check['code'],
+                        'reason' => $check['reason'],
+                    ]);
+
+                    if ($this->messageId) {
+                        Message::where('id', $this->messageId)->update([
+                            'status' => 'blocked',
+                            'error_message' => $check['reason'],
+                            'updated_at' => now(),
+                        ]);
+                    }
+
+                    return;
+                }
+            }
 
             // Handle Redis throttling - release job with delay if throttled
             if ($this->handleQueueThrottling($provider, $channel)) {
