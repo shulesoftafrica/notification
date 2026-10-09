@@ -26,6 +26,36 @@ class DispatchMessage implements ShouldQueue
     protected $priority;
 
     /**
+     * Unix time after which this job stops being retried. Deliberately untyped with a null default, so jobs that
+     * were queued before this property existed still unserialize and fall back to a default window.
+     */
+    public $expiresAt = null;
+
+    /**
+     * How long a message may keep waiting/retrying.
+     *
+     * Every release() for throttling counts as an attempt, so a plain attempt limit ($tries = 15) was used up by
+     * simply waiting in line behind the provider rate limit: during a backlog 31,789 SMS jobs were failed with
+     * "has been attempted too many times" without ever being tried (production, 17-28 Sep). A time window lets a job
+     * wait out the throttle however many releases that takes, while $maxExceptions still caps genuine failures.
+     * Time-sensitive messages get a short window (an OTP delivered hours late is worse than none).
+     */
+    public function retryUntil(): \DateTimeInterface
+    {
+        return \Carbon\Carbon::createFromTimestamp($this->expiresAt ?: now()->addHours(6)->getTimestamp());
+    }
+
+    protected static function retryWindowMinutes(string $priority): int
+    {
+        return match ($priority) {
+            'urgent' => 15,
+            'high' => 60,
+            'low' => 24 * 60,
+            default => 6 * 60,
+        };
+    }
+
+    /**
      * Create a new job instance.
      */
     public function __construct(array $messageData, ?int $messageId = null, string $priority = 'normal')
@@ -33,7 +63,8 @@ class DispatchMessage implements ShouldQueue
         $this->messageData = $messageData;
         $this->messageId = $messageId;
         $this->priority = $priority;
-        
+        $this->expiresAt = now()->addMinutes(self::retryWindowMinutes($priority))->getTimestamp();
+
         // Set queue priority
       //  $this->onQueue($this->getQueueName($priority));
     }

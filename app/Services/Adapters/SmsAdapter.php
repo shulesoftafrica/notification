@@ -67,12 +67,26 @@ class SmsAdapter implements ProviderAdapterInterface
         $secretKey = $this->config['secret_key'];
         $effectiveSenderName = $senderName ?? $this->config['sender_name'] ?? 'SHULESOFT';
 
-        // Clean phone number (remove + if present)
-        $cleanPhone = str_replace('+', '', $to);
+        // Clean phone number (remove + and formatting characters)
+        $cleanPhone = preg_replace('/[\s\-().+]/', '', $to);
+
+        // Beem rejects malformed numbers with "No valid destination number provided" (e.g. +25555719529344, a
+        // Tanzanian prefix followed by too many digits). Fail here with a clear reason instead of spending an API call.
+        if (!self::isDeliverableBeemNumber($cleanPhone)) {
+            Log::warning('Beem SMS skipped: invalid destination number', ['to' => $to]);
+
+            return ProviderResponse::failure(
+                $this->provider,
+                'Invalid destination number: ' . $to,
+                ['status_code' => 422, 'permanent' => true],
+                $this->getResponseTime($startTime)
+            );
+        }
 
         $payload = [
             'source_addr' => $effectiveSenderName,
-            'encoding' => 0,
+            // Beem answers "Enter a plain text message only" when non-GSM characters are sent as encoding 0
+            'encoding' => self::beemEncodingFor($message),
             'schedule_time' => '',
             'message' => $message,
             'recipients' => [
@@ -117,6 +131,30 @@ class SmsAdapter implements ProviderAdapterInterface
                 $responseTime
             );
         }
+    }
+
+    /**
+     * Digits only, E.164 length (8-15), and Tanzanian (255) numbers must be exactly 12 digits.
+     */
+    public static function isDeliverableBeemNumber(string $digits): bool
+    {
+        if (!preg_match('/^[1-9]\d{7,14}$/', $digits)) {
+            return false;
+        }
+
+        if (str_starts_with($digits, '255') && strlen($digits) !== 12) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Beem encoding: 0 = GSM plain text, 1 = Unicode (anything outside ASCII).
+     */
+    public static function beemEncodingFor(string $message): int
+    {
+        return preg_match('/[^\x00-\x7F]/', $message) ? 1 : 0;
     }
 
     /**
