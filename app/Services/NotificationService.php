@@ -56,6 +56,9 @@ class NotificationService
             return [
                 'message_id' => $messageId,
                 'status' => $result['success'] ? 'sent' : 'failed',
+                // Without this the provider's reason was dropped and messages.error_message stayed empty, so a
+                // blocked WaSender session (HTTP 402) looked like silent failures with no explanation.
+                'error' => $result['success'] ? null : ($result['error'] ?? null),
                 'provider' => $provider,
                 'estimated_delivery' => $result['estimated_delivery'] ?? null,
             ];        } catch (\Exception $e) {

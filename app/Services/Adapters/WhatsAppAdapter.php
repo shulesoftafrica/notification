@@ -365,7 +365,14 @@ class WhatsAppAdapter implements ProviderAdapterInterface
         }
 
         $error = $response->json()['error'] ?? $response->json()['message'] ?? 'Unknown Wasender error';
-        return ProviderResponse::failure('wasender', $error, [], $responseTime);
+
+        Log::warning('WaSender rejected the message', [
+            'http_status' => $response->status(),
+            'error' => $error,
+            'to' => $phoneNumber,
+        ]);
+
+        return ProviderResponse::failure('wasender', $error, ['status_code' => $response->status()], $responseTime);
     }
 
     /**
