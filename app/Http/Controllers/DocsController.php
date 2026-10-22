@@ -78,7 +78,8 @@ class DocsController extends Controller
     public function guides($guide = null)
     {
         if (!$guide) {
-            return view('docs.guides.index', [
+            // There is no guides index view; the getting-started guide is the landing page.
+            return view('docs.guides.getting-started', [
                 'title' => 'Developer Guides'
             ]);
         }
