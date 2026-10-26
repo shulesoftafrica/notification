@@ -9,6 +9,7 @@ use App\Services\ProviderFailoverService;
 use App\Services\MetricsService;
 use App\Services\AnalyticsService;
 use App\Services\EmailFilterService;
+use App\Services\Adapters\ProviderResponse;
 
 class NotificationService
 {
@@ -31,10 +32,13 @@ class NotificationService
 
     /**
      * Send notification
+     *
+     * Pass 'resolved_provider' (from resolveProvider()) to skip provider selection, so the
+     * provider that was rate-limited is the one actually used.
      */
     public function send($data)
     {
-        $messageId = Str::uuid();
+        $logId = (string) Str::uuid();
 
         try {
             // Validate and prepare data
@@ -46,49 +50,75 @@ class NotificationService
                 $check = $this->emailFilter->check($preparedData['to']);
 
                 if (!$check['allowed']) {
-                    return $this->blockEmailRecipient($messageId, $preparedData, $check);
+                    return $this->blockEmailRecipient($logId, $preparedData, $check);
                 }
 
                 $preparedData['to'] = $check['email'];
             }
 
             // Store notification log
-            $logId = $this->storeNotificationLog($messageId, $preparedData);
-            
+            $this->storeNotificationLog($logId, $preparedData);
+
             // Select provider
-            $provider = $this->selectProvider($preparedData['channel'], $preparedData['provider'], $preparedData);
-            
+            $provider = $data['resolved_provider']
+                ?? $this->selectProvider($preparedData['channel'], $preparedData['provider'], $preparedData);
+
             // Send notification
             $result = $this->sendNotification($provider, $preparedData);
-            
-            // Update log with result  
+
+            // Update log with result
             $this->updateNotificationLog($logId, $result, $provider);
-            
-            // Track metrics
-            $this->metricsService->trackNotificationSent($provider, $preparedData['channel'], [
-                'send_time' => $result['send_time'] ?? 0,
-            ]);
-            
-            return [
-                'message_id' => $messageId,
-                'status' => $result['success'] ? 'sent' : 'failed',
-                'provider' => $provider,
-                'estimated_delivery' => $result['estimated_delivery'] ?? null,
-            ];        } catch (\Exception $e) {
-            Log::error('Notification send failed', [
-                'message_id' => $messageId,
-                'error' => $e->getMessage(),
-                'data' => $data,
-            ]);
-            
-            // Update log with error
-            if (isset($logId)) {
-                $this->updateNotificationLog($logId, [
-                    'status' => 'failed',
-                    'error' => $e->getMessage(),
-                ], $provider ?? null);
+
+            $success = (bool) ($result['success'] ?? false);
+
+            // Track metrics (a provider rejection must not be counted/logged as sent)
+            if ($success) {
+                $this->metricsService->trackNotificationSent($provider, $preparedData['channel'], [
+                    'send_time' => $result['send_time'] ?? 0,
+                ]);
+            } else {
+                $this->metricsService->trackNotificationFailed($provider, $preparedData['channel'], $result['error'] ?? 'unknown', [
+                    'send_time' => $result['send_time'] ?? 0,
+                ]);
             }
-            
+            $statusCode = (int) ($result['metadata']['status_code'] ?? 0);
+            $temporaryFailure = !$success && (
+                $statusCode === 429 || $statusCode >= 500
+                || ProviderResponse::errorIsTemporary($result['error'] ?? null)
+            );
+
+            // Feed the circuit breaker. Only transient provider errors count, so bad
+            // recipient numbers etc. cannot mark a healthy provider as down.
+            if ($success) {
+                $this->failoverService->recordProviderSuccess($provider);
+            } elseif ($temporaryFailure) {
+                $this->failoverService->recordProviderFailure($provider, $result['error'] ?? 'unknown');
+            }
+
+            return [
+                // Provider's own id (used to match delivery reports); falls back to the log id.
+                'message_id' => $result['message_id'] ?? $logId,
+                'provider_message_id' => $result['message_id'] ?? null,
+                'log_id' => $logId,
+                'status' => $success ? 'sent' : 'failed',
+                'provider' => $provider,
+                'error' => $success ? null : ($result['error'] ?? 'Unknown provider error'),
+                'temporary_failure' => $temporaryFailure,
+                'estimated_delivery' => $result['estimated_delivery'] ?? null,
+            ];
+        } catch (\Exception $e) {
+            Log::error('Notification send failed', [
+                'log_id' => $logId,
+                'error' => $e->getMessage(),
+                'data' => $this->redactForLog($data),
+            ]);
+
+            // Update log with error
+            $this->updateNotificationLog($logId, [
+                'success' => false,
+                'error' => $e->getMessage(),
+            ], $provider ?? null);
+
             throw $e;
         }
     }
@@ -124,12 +154,37 @@ class NotificationService
 
         return [
             'message_id' => $messageId,
+            'provider_message_id' => null,
+            'log_id' => (string) $messageId,
             'status' => 'blocked',
             'provider' => null,
-            'estimated_delivery' => null,
             'error' => $check['reason'],
+            'temporary_failure' => false,
+            'estimated_delivery' => null,
             'filter_code' => $check['code'],
         ];
+    }
+
+    /**
+     * Resolve which provider will be used for this notification, without sending.
+     */
+    public function resolveProvider(array $data): string
+    {
+        $preparedData = $this->prepareNotificationData($data);
+
+        return $this->selectProvider($preparedData['channel'], $preparedData['provider'], $preparedData);
+    }
+
+    /**
+     * Strip secrets from payloads before they are written to logs.
+     */
+    protected function redactForLog(array $data): array
+    {
+        if (isset($data['metadata']['wasender_api_key'])) {
+            $data['metadata']['wasender_api_key'] = '[redacted]';
+        }
+
+        return $data;
     }
 
     /**
@@ -194,40 +249,35 @@ class NotificationService
      */
     protected function updateNotificationLog($logId, $result, $provider)
     {
-        // Handle both array and ProviderResponse formats
-        if (is_array($result)) {
-            $status = $result['status'] ?? 'failed';
-            $messageId = $result['provider_message_id'] ?? null;
-            $error = $result['error'] ?? null;
-            $providerResponse = $result['provider_response'] ?? [];
-        } else {
-            // Convert ProviderResponse success to status
-            $status = isset($result['success']) && $result['success'] ? 'sent' : 'failed';
-            $messageId = $result['message_id'] ?? null;
-            $error = $result['error'] ?? null;
-            $providerResponse = $result;
-        }
+        // $result is ProviderResponse::toArray() (+ send_time): success, message_id, error, ...
+        $status = !empty($result['success']) ? 'sent' : 'failed';
 
         $updateData = [
             'status' => $status,
             'provider' => $provider,
-            'provider_message_id' => $messageId,
-            'provider_response' => json_encode($providerResponse),
-            'error' => $error,
+            'provider_message_id' => $result['message_id'] ?? null,
+            'provider_response' => json_encode($result),
+            'error' => $result['error'] ?? null,
             'updated_at' => now(),
         ];
 
         if ($status === 'sent') {
             $updateData['sent_at'] = now();
-        } elseif ($status === 'delivered') {
-            $updateData['delivered_at'] = now();
-        } elseif ($status === 'failed') {
+        } else {
             $updateData['failed_at'] = now();
         }
 
-        DB::table('notification_logs')
-            ->where('id', $logId)
-            ->update($updateData);
+        try {
+            DB::table('notification_logs')
+                ->where('id', $logId)
+                ->update($updateData);
+        } catch (\Exception $e) {
+            // Audit logging must never break or duplicate a send.
+            Log::warning('Failed to update notification log', [
+                'log_id' => $logId,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -235,7 +285,11 @@ class NotificationService
      */
     protected function selectProvider($channel, $preferredProvider = null, $data = [])
     {
-        if ($preferredProvider) {
+        // Only honour a preferred provider that actually serves this channel
+        // (e.g. never route an SMS through 'wasender').
+        $supportedChannels = config("notification.providers.{$preferredProvider}.channels", []);
+
+        if ($preferredProvider && in_array($channel, $supportedChannels, true)) {
             // Check if preferred provider is available
             if ($this->failoverService->isProviderAvailable($preferredProvider)) {
                 return $preferredProvider;

@@ -37,7 +37,7 @@ return [
 
         'resend' => [
             'driver' => 'resend',
-            'api_key' => env('RESEND_API_KEY', 're_MnYpRxPt_JfBcjc4ji75DeFpVMHMkn2GM'),
+            'api_key' => env('RESEND_API_KEY', ''),
             'from_email' => env('MAIL_FROM_ADDRESS', 'noreply@mail.shulesoft.co'),
             'from_name' => env('MAIL_FROM_NAME', 'Shulesoft'),
             'channels' => ['email'],
@@ -137,42 +137,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Rate Limiting
-    |--------------------------------------------------------------------------
-    |
-    | Configure rate limiting for notifications to prevent abuse.
-    |
-    */
-
-    'rate_limiting' => [
-        'enabled' => env('NOTIFICATION_RATE_LIMIT_ENABLED', true),
-        'limits' => [
-            'email' => [
-                'minute' => 100,
-                'hour' => 5000,
-                'day' => 100000,
-            ],
-            'sms' => [
-                'minute' => 50,
-                'hour' => 2000,
-                'day' => 20000,
-            ],
-            'whatsapp' => [
-                'minute' => 20,
-                'hour' => 1000,
-                'day' => 10000,
-            ],
-        ],
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
     | Queue Configuration
     |--------------------------------------------------------------------------
     |
     | Configure whether notifications should be queued for background processing.
     |
     */
+
+    'maintenance' => [
+        // Days to keep notification_logs / api_request_logs. 0 = never prune.
+        'log_retention_days' => (int) env('NOTIFICATION_LOG_RETENTION_DAYS', 0),
+        // queue:monitor warns when a queue holds more than this many jobs.
+        'queue_monitor_max_jobs' => (int) env('QUEUE_MONITOR_MAX_JOBS', 1000),
+    ],
 
     'queue' => [
         'enabled' => env('NOTIFICATION_QUEUE_ENABLED', true),

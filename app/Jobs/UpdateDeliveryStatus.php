@@ -161,7 +161,8 @@ class UpdateDeliveryStatus implements ShouldQueue
         // Merge existing metadata with new data
         if (isset($this->deliveryData['metadata'])) {
             $existingMetadata = $message->metadata ?? [];
-            $updateData['metadata'] = array_merge($existingMetadata, $this->deliveryData['metadata']);
+            // Builder update() bypasses model casts, so encode the JSON column explicitly.
+            $updateData['metadata'] = json_encode(array_merge($existingMetadata, $this->deliveryData['metadata']));
         }
 
         Message::where('id', $this->messageId)->update($updateData);
@@ -260,11 +261,19 @@ class UpdateDeliveryStatus implements ShouldQueue
         ]);
 
         try {
-            // Log the failed status update attempt
-            Message::where('id', $this->messageId)->update([
-                'metadata' => \DB::raw("JSON_SET(COALESCE(metadata, '{}'), '$.failed_status_updates', JSON_ARRAY_APPEND(COALESCE(JSON_EXTRACT(metadata, '$.failed_status_updates'), '[]'), '$', '{$this->status}'))"),
-                'updated_at' => now()
-            ]);
+            // Log the failed status update attempt (merged in PHP: the previous raw
+            // JSON_SET/JSON_ARRAY_APPEND SQL is MySQL-only and fails on PostgreSQL)
+            $message = Message::find($this->messageId);
+            if ($message) {
+                $metadata = $message->metadata ?? [];
+                $metadata['failed_status_updates'] = array_merge(
+                    $metadata['failed_status_updates'] ?? [],
+                    [$this->status]
+                );
+
+                $message->metadata = $metadata;
+                $message->save();
+            }
         } catch (\Exception $e) {
             Log::error('Failed to log failed status update', [
                 'message_id' => $this->messageId,

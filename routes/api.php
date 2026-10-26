@@ -54,8 +54,9 @@ Route::middleware(['admin.auth'])->prefix('admin')->group(function () {
     });
 });
 
-// Notification API with Redis throttling (2 requests per second)
-Route::middleware(['redis.throttle:2,1'])->group(function () {
+// Notification API with Redis throttling (2 requests per second per school).
+// api.auth runs first so unauthenticated calls don't consume a school's budget.
+Route::middleware(['api.auth', 'redis.throttle:2,1'])->group(function () {
     Route::post('/notifications/send', [NotificationController::class, 'send']);
     Route::post('/notifications/bulk/send', [NotificationController::class, 'sendBulk']);
     Route::post('/notifications/resend', [NotificationController::class, 'resend']);

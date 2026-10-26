@@ -222,7 +222,7 @@ class SmsAdapter implements ProviderAdapterInterface
         }
 
         $error = $response->json()['message'] ?? 'Unknown error';
-        return ProviderResponse::failure('twilio', $error, [], $responseTime);
+        return ProviderResponse::failure('twilio', $error, ['status_code' => $response->status()], $responseTime);
     }
 
     /**

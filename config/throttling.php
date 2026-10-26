@@ -10,11 +10,6 @@ return [
     |
     */
 
-    'default' => [
-        'max_attempts' => env('THROTTLE_MAX_ATTEMPTS', 2),
-        'decay_seconds' => env('THROTTLE_DECAY_SECONDS', 1),
-    ],
-
     'notifications' => [
         'send' => [
             'max_attempts' => env('NOTIFICATION_SEND_MAX_ATTEMPTS', 2),
@@ -32,7 +27,9 @@ return [
     |--------------------------------------------------------------------------
     |
     | Configure different rate limits for each provider to respect their
-    | API limitations and prevent 429 errors.
+    | API limitations and prevent 429 errors. The provider limit is the one
+    | enforced for queued sends; it is keyed on the provider that will
+    | actually be used (after failover/routing), not the one requested.
     |
     */
 
@@ -76,7 +73,8 @@ return [
     | Channel-Specific Rate Limits
     |--------------------------------------------------------------------------
     |
-    | Configure different rate limits for each channel type.
+    | Fallback limits, used only when the resolved provider has no entry in
+    | the 'providers' list above.
     |
     */
 
@@ -93,11 +91,6 @@ return [
             'max_attempts' => env('WHATSAPP_CHANNEL_MAX_ATTEMPTS', 10),
             'decay_seconds' => env('WHATSAPP_CHANNEL_DECAY_SECONDS', 1),
         ],
-    ],
-
-    'wasender' => [
-        'max_attempts' => env('WASENDER_MAX_ATTEMPTS', 5),
-        'decay_seconds' => env('WASENDER_DECAY_SECONDS', 1),
     ],
 
     /*
@@ -120,4 +113,20 @@ return [
     |
     */
     'key_prefix' => env('THROTTLE_KEY_PREFIX', 'throttle'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Queue Behaviour
+    |--------------------------------------------------------------------------
+    |
+    | release_jitter_seconds: random extra delay added when a throttled job is
+    | released, so released jobs do not all wake up in the same second.
+    |
+    | retry_window_minutes: how long a DispatchMessage job may keep being
+    | released/retried before it is failed. Throttle releases no longer
+    | consume a fixed "tries" budget; only this window and maxExceptions apply.
+    |
+    */
+    'release_jitter_seconds' => (int) env('THROTTLE_RELEASE_JITTER_SECONDS', 3),
+    'retry_window_minutes' => (int) env('QUEUE_RETRY_WINDOW_MINUTES', 360),
 ];

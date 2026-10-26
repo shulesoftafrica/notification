@@ -40,8 +40,8 @@ class ApiAuthMiddleware
             return $this->unauthorizedResponse('Invalid API token.');
         }
 
-        // Log successful authentication
-        Log::info('API request authenticated', [
+        // Log successful authentication (debug: this runs on every API call)
+        Log::debug('API request authenticated', [
             'ip' => $request->ip(),
             'user_agent' => $request->userAgent(),
             'endpoint' => $request->path(),

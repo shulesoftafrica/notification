@@ -235,8 +235,12 @@ class WhatsAppAdapter implements ProviderAdapterInterface
         $apiUrl = $this->config['api_url'];
         $deviceId = $this->config['device_id'];
         
-        // Use API key from metadata if available (for schema-based sessions), otherwise fall back to config
-        $apiKey = $metadata['wasender_api_key'] ?? $this->config['api_key'];
+        // Resolve the schema's session key at send time so the secret is not carried in job
+        // payloads or message metadata. metadata['wasender_api_key'] is still honoured for
+        // jobs queued before this change.
+        $apiKey = $metadata['wasender_api_key']
+            ?? \App\Models\WaSenderSession::apiKeyForSchema($metadata['schema_name'] ?? null)
+            ?? $this->config['api_key'];
         
         // If no API key is available, fail the request
         if (!$apiKey) {
@@ -346,7 +350,7 @@ class WhatsAppAdapter implements ProviderAdapterInterface
         }
 
         $error = $response->json()['error'] ?? $response->json()['message'] ?? 'Unknown Wasender error';
-        return ProviderResponse::failure('wasender', $error, [], $responseTime);
+        return ProviderResponse::failure('wasender', $error, ['status_code' => $response->status()], $responseTime);
     }
 
     /**
@@ -603,7 +607,7 @@ class WhatsAppAdapter implements ProviderAdapterInterface
             }
 
             $error = $response->json()['error']['message'] ?? 'Unknown error';
-            return ProviderResponse::failure('whatsapp', $error, [], $responseTime);
+            return ProviderResponse::failure('whatsapp', $error, ['status_code' => $response->status()], $responseTime);
 
         } catch (\Exception $e) {
             return ProviderResponse::failure(

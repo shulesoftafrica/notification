@@ -264,7 +264,7 @@ class EmailAdapter implements ProviderAdapterInterface
         }
 
         $error = $response->json()['errors'][0]['message'] ?? 'Unknown error';
-        return ProviderResponse::failure('sendgrid', $error, [], $responseTime);
+        return ProviderResponse::failure('sendgrid', $error, ['status_code' => $response->status()], $responseTime);
     }
 
     /**
@@ -341,7 +341,7 @@ class EmailAdapter implements ProviderAdapterInterface
         }
 
         $error = $response->json()['message'] ?? 'Unknown error';
-        return ProviderResponse::failure('mailgun', $error, [], $responseTime);
+        return ProviderResponse::failure('mailgun', $error, ['status_code' => $response->status()], $responseTime);
     }
 
     /**

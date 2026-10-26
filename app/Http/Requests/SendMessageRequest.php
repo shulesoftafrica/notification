@@ -253,7 +253,10 @@ class SendMessageRequest extends FormRequest
 
         // If it doesn't start with +, assume it's a Tz number which start with 0..
         if (!str_starts_with($cleaned, '+')) {
-            $cleaned = '+255' .substr($cleaned, 1);
+            // ...unless it already carries the 255 country code (e.g. "255712345678").
+            $cleaned = str_starts_with($cleaned, '255') && strlen($cleaned) === 12
+                ? '+' . $cleaned
+                : '+255' . substr($cleaned, 1);
         }
 
         return $cleaned;

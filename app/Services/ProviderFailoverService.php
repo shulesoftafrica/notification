@@ -96,6 +96,11 @@ class ProviderFailoverService
      */
     public function recordProviderSuccess($provider)
     {
+        // Called on every successful send; skip the cache writes when there is nothing to reset.
+        if ($this->getProviderFailureCount($provider) === 0) {
+            return;
+        }
+
         $this->resetProviderFailures($provider);
         
         Log::debug('Provider success recorded', [
@@ -190,7 +195,7 @@ class ProviderFailoverService
      */
     protected function getProviderFailureCount($provider)
     {
-        return Cache::get($this->cachePrefix . "failures:{$provider}", 0);
+        return (int) Cache::get($this->cachePrefix . "failures:{$provider}", 0);
     }
 
     /**
@@ -199,9 +204,12 @@ class ProviderFailoverService
     protected function incrementProviderFailureCount($provider)
     {
         $key = $this->cachePrefix . "failures:{$provider}";
-        $count = Cache::get($key, 0) + 1;
-        Cache::put($key, $count, now()->addHours(24));
-        return $count;
+
+        // add() + increment() are atomic on the redis store, unlike get() + put(),
+        // so concurrent workers don't lose failure counts.
+        Cache::add($key, 0, now()->addHours(24));
+
+        return (int) Cache::increment($key);
     }
 
     /**
