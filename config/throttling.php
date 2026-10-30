@@ -63,8 +63,9 @@ return [
             'decay_seconds' => env('WHATSAPP_DECAY_SECONDS', 60),
         ],
         'wasender' => [
-            'max_attempts' => env('WASENDER_MAX_ATTEMPTS', 5),
-            'decay_seconds' => env('WASENDER_DECAY_SECONDS', 1),
+            // Wasender account protection allows only 1 message every 5 seconds.
+            'max_attempts' => env('WASENDER_MAX_ATTEMPTS', 1),
+            'decay_seconds' => env('WASENDER_DECAY_SECONDS', 5),
         ],
     ],
 
