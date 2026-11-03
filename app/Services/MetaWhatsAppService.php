@@ -27,8 +27,8 @@ class MetaWhatsAppService
     public function __construct(WaSenderService $waSenderService)
     {
         $this->baseUrl = rtrim(config('meta_whatsapp.base_url', 'https://graph.facebook.com'), '/');
-        $this->phoneNumberId = config('meta_whatsapp.phone_number_id');
-        $this->accessToken = config('meta_whatsapp.access_token');
+        $this->phoneNumberId = (string) config('meta_whatsapp.phone_number_id');
+        $this->accessToken = (string) config('meta_whatsapp.access_token');
         $this->apiVersion = config('meta_whatsapp.api_version', 'v24.0');
         $this->waSenderService = $waSenderService;
         $this->enableFallback = config('meta_whatsapp.settings.enable_fallback', true);

@@ -154,7 +154,7 @@ class SendMessageRequest extends FormRequest
         $validator->after(function ($validator) {
             // Additional validation for phone numbers
             if (in_array($this->channel, ['sms', 'whatsapp'])) {
-                if (!$this->isValidPhoneNumber($this->to)) {
+                if (is_string($this->to) && !$this->isValidPhoneNumber($this->to)) {
                     $validator->errors()->add('to', 'Invalid phone number format. Use international format (e.g., +1234567890)');
                 }
             }

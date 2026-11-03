@@ -145,12 +145,12 @@ Route::middleware(['api.auth'])->prefix('wasender')->group(function () {
 
     Route::post('/sessions/create', [WaSenderSessionController::class, 'createSession']);
     Route::get('/sessions', [WaSenderSessionController::class, 'getSessions']);
-    Route::get('/sessions/{id}', [WaSenderSessionController::class, 'getSession']);
-    Route::post('/sessions/{id}/connect', [WaSenderSessionController::class, 'connectSession']);
-    Route::get('/sessions/{id}/status', [WaSenderSessionController::class, 'checkStatus']);
-    Route::put('/sessions/{id}', [WaSenderSessionController::class, 'updateSession']);
-    Route::get('/sessions/{id}/qrcode', [WaSenderSessionController::class, 'getQRCode']);
-    Route::delete('/sessions/{id}', [WaSenderSessionController::class, 'deleteSession']);
+    Route::get('/sessions/{id}', [WaSenderSessionController::class, 'getSession'])->whereNumber('id');
+    Route::post('/sessions/{id}/connect', [WaSenderSessionController::class, 'connectSession'])->whereNumber('id');
+    Route::get('/sessions/{id}/status', [WaSenderSessionController::class, 'checkStatus'])->whereNumber('id');
+    Route::put('/sessions/{id}', [WaSenderSessionController::class, 'updateSession'])->whereNumber('id');
+    Route::get('/sessions/{id}/qrcode', [WaSenderSessionController::class, 'getQRCode'])->whereNumber('id');
+    Route::delete('/sessions/{id}', [WaSenderSessionController::class, 'deleteSession'])->whereNumber('id');
 });
 
 // SMS session management API
