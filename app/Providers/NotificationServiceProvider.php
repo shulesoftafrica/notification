@@ -10,6 +10,7 @@ use App\Services\AlertService;
 use App\Services\ClientWebhookService;
 use App\Services\ProviderHealthService;
 use App\Services\ProviderFailoverService;
+use App\Services\EmailFilterService;
 // Duplicate import removed
 use App\Services\WebhookProcessorService;
 use App\Services\ProductionMonitoringService;
@@ -29,6 +30,7 @@ class NotificationServiceProvider extends ServiceProvider
         $this->app->singleton(ProviderHealthService::class);
         $this->app->singleton(RateLimitService::class);
         $this->app->singleton(WebhookProcessorService::class);
+        $this->app->singleton(EmailFilterService::class);
 
         // Register services with dependencies
         $this->app->singleton(ProviderFailoverService::class, function ($app) {
@@ -41,7 +43,8 @@ class NotificationServiceProvider extends ServiceProvider
             return new NotificationServiceClass(
                 $app->make(ProviderFailoverService::class),
                 $app->make(MetricsService::class),
-                $app->make(AnalyticsService::class)
+                $app->make(AnalyticsService::class),
+                $app->make(EmailFilterService::class)
             );
         });
 

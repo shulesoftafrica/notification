@@ -151,9 +151,11 @@ class DeliverWebhook implements ShouldQueue
             'X-Timestamp' => now()->toISOString()
         ];
 
+        // Short timeouts and no in-request retries: the queue retries with $backoff, and the
+        // whole call must stay well inside the job $timeout.
         $response = Http::withHeaders($headers)
-            ->timeout($this->timeout)
-            ->retry(2, 1000) // Retry 2 times with 1 second delay
+            ->connectTimeout(5)
+            ->timeout(15)
             ->post($this->webhookUrl, $payload);
 
         if (!$response->successful()) {

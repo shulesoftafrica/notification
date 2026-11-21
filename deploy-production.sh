@@ -221,32 +221,12 @@ log_info "✅ Nginx configured"
 echo "👷 Step 9: Queue workers configuration"
 
 log_info "Configuring Supervisor for queue workers..."
-sudo tee $SUPERVISOR_CONFIG > /dev/null <<EOF
-[program:notification-worker]
-process_name=%(program_name)s_%(process_num)02d
-command=php $DEPLOYMENT_DIR/artisan queue:work redis --sleep=3 --tries=3 --max-time=3600 --queue=default,webhooks,notifications
-directory=$DEPLOYMENT_DIR
-autostart=true
-autorestart=true
-stopasgroup=true
-killasgroup=true
-user=www-data
-numprocs=4
-redirect_stderr=true
-stdout_logfile=$DEPLOYMENT_DIR/storage/logs/worker.log
-stopwaitsecs=3600
+# Worker/scheduler programs come from the versioned template (queue timeouts there
+# must stay in sync with config/queue.php retry_after and the job classes).
+sed "s#/usr/share/nginx/html/notification#$DEPLOYMENT_DIR#g" \
+    $DEPLOYMENT_DIR/deploy/supervisor/notification.conf | sudo tee $SUPERVISOR_CONFIG > /dev/null
 
-[program:notification-scheduler]
-process_name=%(program_name)s
-command=php $DEPLOYMENT_DIR/artisan schedule:work
-directory=$DEPLOYMENT_DIR
-autostart=true
-autorestart=true
-stopasgroup=true
-killasgroup=true
-user=www-data
-redirect_stderr=true
-stdout_logfile=$DEPLOYMENT_DIR/storage/logs/scheduler.log
+sudo tee -a $SUPERVISOR_CONFIG > /dev/null <<EOF
 
 [program:notification-monitor]
 process_name=%(program_name)s
@@ -263,8 +243,9 @@ EOF
 
 sudo supervisorctl reread
 sudo supervisorctl update
-sudo supervisorctl start notification-worker:*
-sudo supervisorctl start notification-scheduler:*
+# Workers are long-lived; make running ones pick up the new code/config gracefully.
+php $DEPLOYMENT_DIR/artisan queue:restart
+sudo supervisorctl start notification:*
 sudo supervisorctl start notification-monitor:*
 
 log_info "✅ Queue workers configured and started"
@@ -282,7 +263,7 @@ $DEPLOYMENT_DIR/storage/logs/*.log {
     notifempty
     create 0644 www-data www-data
     postrotate
-        supervisorctl restart notification-worker:*
+        supervisorctl restart notification:*
     endscript
 }
 EOF
@@ -363,7 +344,7 @@ echo "  - Redis: $(systemctl is-active redis-server)"
 echo "  - Supervisor: $(systemctl is-active supervisor)"
 echo ""
 echo "Queue Workers:"
-sudo supervisorctl status notification-worker:*
+sudo supervisorctl status notification:*
 echo ""
 echo "Next Steps:"
 echo "  1. Update .env with production settings"

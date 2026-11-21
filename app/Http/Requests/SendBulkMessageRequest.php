@@ -7,6 +7,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Log;
+use App\Services\EmailFilterService;
 
 class SendBulkMessageRequest extends FormRequest
 {
@@ -33,14 +34,14 @@ class SendBulkMessageRequest extends FormRequest
             'messages.*.message' => ['required', 'string', 'max:4096'],
             'messages.*.subject' => ['required_if:channel,email', 'string', 'max:255'],
             'messages.*.metadata' => ['sometimes', 'array', 'max:10'],
-            'messages.*.metadata.*' => ['string', 'max:500'],
+            'messages.*.metadata.*' => ['max:500'],
             'priority' => ['sometimes', 'string', Rule::in(['low', 'normal', 'high', 'urgent'])],
             'scheduled_at' => ['sometimes', 'date', 'after:now'],
             'batch_size' => ['sometimes', 'integer', 'min:1', 'max:100'],
             'rate_limit' => ['sometimes', 'integer', 'min:1', 'max:1000'],
             'webhook_url' => ['sometimes', 'url', 'max:2048'],
             'metadata' => ['sometimes', 'array', 'max:10'],
-            'metadata.*' => ['string', 'max:500'],
+            'metadata.*' => ['max:500'],
             'provider' => ['sometimes', 'string', Rule::in(['twilio', 'whatsapp', 'sendgrid', 'mailgun', 'resend', 'beem', 'termii'])],
             'sender_name' => ['sometimes', 'string', 'max:50'],
             'type' => ['sometimes', 'string', Rule::in(['official', 'wasender'])], // WhatsApp provider type
@@ -178,21 +179,36 @@ class SendBulkMessageRequest extends FormRequest
                     }
                 }
 
-                // Additional validation for email addresses
-                if ($this->channel === 'email') {
-                    if (!filter_var($to, FILTER_VALIDATE_EMAIL)) {
-                        $validator->errors()->add(
-                            "messages.{$index}.to",
-                            'Invalid email address format'
-                        );
-                    }
-                }
-
                 // Validate message length for SMS
                 if ($this->channel === 'sms' && isset($message['message']) && strlen($message['message']) > 1600) {
                     $validator->errors()->add(
                         "messages.{$index}.message",
                         'SMS message too long. Maximum 1600 characters allowed'
+                    );
+                }
+            }
+
+            // Email recipients are filtered rather than rejected: one bad
+            // address must not fail a batch of up to 1000 messages. The
+            // controller skips the blocked ones and reports them back. We only
+            // fail the request when there is nothing left to send.
+            if ($this->channel === 'email') {
+                $blocked = app(EmailFilterService::class)
+                    ->partition(array_column($this->messages ?? [], 'to'))['blocked'];
+
+                if (!empty($blocked)) {
+                    Log::info('Bulk email recipients rejected by filter', [
+                        'blocked_count' => count($blocked),
+                        'total' => count($this->messages ?? []),
+                        'blocked' => array_slice($blocked, 0, 50),
+                        'schema_name' => $this->input('schema_name'),
+                    ]);
+                }
+
+                if (!empty($this->messages) && count($blocked) === count($this->messages)) {
+                    $validator->errors()->add(
+                        'messages',
+                        'No valid email recipients in this request. ' . $blocked[0]['reason']
                     );
                 }
             }
@@ -270,7 +286,10 @@ class SendBulkMessageRequest extends FormRequest
         
         // If it doesn't start with +, assume it's a Tz number which start with 0..
         if (!str_starts_with($cleaned, '+')) {
-            $cleaned = '+255' .substr($cleaned, 1);
+            // ...unless it already carries the 255 country code (e.g. "255712345678").
+            $cleaned = str_starts_with($cleaned, '255') && strlen($cleaned) === 12
+                ? '+' . $cleaned
+                : '+255' . substr($cleaned, 1);
         }
         
         return $cleaned;

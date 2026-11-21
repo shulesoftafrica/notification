@@ -7,6 +7,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Log;
+use App\Services\EmailFilterService;
 
 class SendMessageRequest extends FormRequest
 {
@@ -37,7 +38,7 @@ class SendMessageRequest extends FormRequest
             'template_data' => ['nullable', 'array'],
             'template_data.*' => ['string', 'max:1000'],
             'metadata' => ['sometimes', 'array', 'max:10'],
-            'metadata.*' => ['string', 'max:500'],
+            'metadata.*' => ['max:500'],
             'sender_name' => ['sometimes', 'string', 'max:50'],
             'type' => ['sometimes', 'string', Rule::in(['official', 'wasender'])], // WhatsApp provider type
             'webhook_url' => ['sometimes', 'url', 'max:2048'],
@@ -153,15 +154,25 @@ class SendMessageRequest extends FormRequest
         $validator->after(function ($validator) {
             // Additional validation for phone numbers
             if (in_array($this->channel, ['sms', 'whatsapp'])) {
-                if (!$this->isValidPhoneNumber($this->to)) {
+                if (is_string($this->to) && !$this->isValidPhoneNumber($this->to)) {
                     $validator->errors()->add('to', 'Invalid phone number format. Use international format (e.g., +1234567890)');
                 }
             }
 
-            // Additional validation for email addresses
+            // Additional validation for email addresses - format plus the
+            // outbound recipient filter (blocked domains/extensions).
             if ($this->channel === 'email') {
-                if (!filter_var($this->to, FILTER_VALIDATE_EMAIL)) {
-                    $validator->errors()->add('to', 'Invalid email address format');
+                $check = app(EmailFilterService::class)->check($this->to);
+
+                if (!$check['allowed']) {
+                    Log::info('Email recipient rejected by filter', [
+                        'to' => $check['email'],
+                        'code' => $check['code'],
+                        'reason' => $check['reason'],
+                        'schema_name' => $this->input('schema_name'),
+                    ]);
+
+                    $validator->errors()->add('to', $check['reason']);
                 }
             }
 
@@ -242,7 +253,10 @@ class SendMessageRequest extends FormRequest
 
         // If it doesn't start with +, assume it's a Tz number which start with 0..
         if (!str_starts_with($cleaned, '+')) {
-            $cleaned = '+255' .substr($cleaned, 1);
+            // ...unless it already carries the 255 country code (e.g. "255712345678").
+            $cleaned = str_starts_with($cleaned, '255') && strlen($cleaned) === 12
+                ? '+' . $cleaned
+                : '+255' . substr($cleaned, 1);
         }
 
         return $cleaned;

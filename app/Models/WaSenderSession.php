@@ -38,4 +38,19 @@ class WaSenderSession extends Model
     protected $hidden = [
         'webhook_secret',
     ];
+
+    /**
+     * API key of the connected WaSender session for a school schema, or null.
+     */
+    public static function apiKeyForSchema(?string $schemaName): ?string
+    {
+        if (!$schemaName) {
+            return null;
+        }
+
+        return static::where('schema_name', $schemaName)
+            ->where('status', 'connected')
+            ->whereNotNull('api_key')
+            ->value('api_key');
+    }
 }

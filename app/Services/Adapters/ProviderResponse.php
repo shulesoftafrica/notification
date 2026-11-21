@@ -89,25 +89,37 @@ class ProviderResponse
      */
     public function isTemporaryFailure(): bool
     {
-        if ($this->success) {
-            return false;
-        }
+        return !$this->success && self::errorIsTemporary($this->error);
+    }
 
+    /**
+     * Whether a provider error message looks transient (rate limit, 5xx, network),
+     * i.e. worth retrying later rather than failing the message permanently.
+     */
+    public static function errorIsTemporary(?string $error): bool
+    {
         $temporaryErrors = [
             'rate limit',
+            'too many requests',
             'timeout',
+            'timed out',
             'service unavailable',
-            '429',
-            '503',
-            '502',
+            'bad gateway',
+            'gateway timeout',
             'connection',
-            'network'
+            'network',
+            'curl error',
         ];
 
-        $error = strtolower($this->error ?? '');
-        
+        $error = strtolower($error ?? '');
+
+        // HTTP status codes as whole numbers only, so digits inside phone numbers don't match.
+        if (preg_match('/\b(429|500|502|503|504)\b/', $error)) {
+            return true;
+        }
+
         foreach ($temporaryErrors as $tempError) {
-            if (strpos($error, $tempError) !== false) {
+            if (str_contains($error, $tempError)) {
                 return true;
             }
         }

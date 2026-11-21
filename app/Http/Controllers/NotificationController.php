@@ -7,25 +7,100 @@ use App\Http\Requests\SendMessageRequest;
 use App\Http\Requests\SendBulkMessageRequest;
 use App\Http\Resources\MessageResource;
 use App\Services\NotificationService;
+use App\Services\EmailFilterService;
+use App\Services\QueueThrottleService;
 use App\Models\Message;
 use App\Models\WaSenderSession;
 use App\Models\SmsSession;
 use App\Jobs\DispatchMessage;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
 
 class NotificationController extends Controller
 {
     protected $notificationService;
+    protected $emailFilter;
+    protected $throttle;
 
-    public function __construct(NotificationService $notificationService)
+    public function __construct(NotificationService $notificationService, EmailFilterService $emailFilter, QueueThrottleService $throttle)
     {
         $this->notificationService = $notificationService;
+        $this->emailFilter = $emailFilter;
+        $this->throttle = $throttle;
         $this->middleware('api.auth');
+    }
+
+    /**
+     * WhatsApp defaults to the WaSender provider. Only applied to the whatsapp channel:
+     * applying them to SMS/email routed and throttled those messages as 'wasender'.
+     */
+    protected function applyWhatsAppDefaults(array $validated): array
+    {
+        if ($validated['channel'] !== 'whatsapp') {
+            return $validated;
+        }
+
+        $validated['type'] = $validated['type'] ?? 'wasender';
+
+        if ($validated['type'] === 'wasender') {
+            $validated['provider'] = $validated['provider'] ?? 'wasender';
+        }
+
+        return $validated;
+    }
+
+    /**
+     * Run the SMS balance check + message creation under a per-school lock.
+     * Non-SMS channels (and the shulesoft schema, which is not balance-checked) run unlocked.
+     */
+    protected function withSmsBalanceLock(array $validated, callable $callback)
+    {
+        if ($validated['channel'] !== 'sms' || $validated['schema_name'] === 'shulesoft') {
+            return $callback();
+        }
+
+        return Cache::lock('sms-balance:' . $validated['schema_name'], 60)->block(15, $callback);
+    }
+
+    /**
+     * Provider a batch will most likely be sent through, used for dispatch pacing.
+     */
+    protected function pacingProvider(array $sendData): string
+    {
+        try {
+            return $this->notificationService->resolveProvider($sendData);
+        } catch (\Throwable $e) {
+            return config("notification.channels.{$sendData['channel']}.default", 'unknown');
+        }
+    }
+
+    /**
+     * Dispatch delay (seconds) for the Nth message of a batch: the client's rate_limit
+     * (messages/minute) or the provider's own rate limit, whichever is slower.
+     */
+    protected function dispatchDelay(int $index, $rateLimit, string $provider, string $channel): float
+    {
+        $clientDelay = ($rateLimit && $index > 0) ? ($index / $rateLimit) * 60 : 0;
+
+        return max($clientDelay, $this->throttle->pacedDelay($index, $provider, $channel));
+    }
+
+    protected function queuedResponse(Message $message): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'message_id' => $message->id,
+            'external_id' => null,
+            'status' => $message->status,
+            'provider' => null,
+            'data' => new MessageResource($message)
+        ], 202);
     }
 
 
@@ -36,7 +111,7 @@ class NotificationController extends Controller
     {
         try {
             $validated = $request->validated();
-
+            $validated = $this->applyWhatsAppDefaults($validated);
             // Handle base64 encoded attachment
             $attachmentPath = null;
             $attachmentMetadata = null;
@@ -59,7 +134,7 @@ class NotificationController extends Controller
 
                     // Store file in storage/app/attachments
                     $attachmentPath = 'attachments/' . $filename;
-                    Storage::disk('public')->put($attachmentPath, $fileContent);
+                    Storage::disk('public_root')->put($attachmentPath, $fileContent);
 
                     // Save attachment metadata
                     $attachmentMetadata = [
@@ -92,6 +167,11 @@ class NotificationController extends Controller
             if ($this->isWasenderWhatsApp($validated)) {
                 $wasenderApiKey = $this->getWasenderApiKey($validated['schema_name']);
                 if (!$wasenderApiKey) {
+                    Log::info([
+                        'success' => false,
+                        'error' => 'WhatsApp session not found or API key unavailable',
+                        'message' => 'No active WhatsApp session found for client: ' . $validated['schema_name'] . ' Please reconnect again or contact shulesoft support'
+                    ]);
                     return response()->json([
                         'success' => false,
                         'error' => 'WhatsApp session not found or API key unavailable',
@@ -112,76 +192,105 @@ class NotificationController extends Controller
                     ], 400);
                 }
             }
-            // check sms balance before dispatching the queue if channel is sms (quick sms);
-            $dispatchMessage = true;
-            if ($validated['channel'] === 'sms' && $validated['schema_name'] !== 'shulesoft') {
-                $smsBalance = $this->processBalance($validated['schema_name']);
-                $initialBalance = $smsBalance['balance'];
-                if ($initialBalance <= 0) { // 20
-                    $dispatchMessage = false;
-                }
-
-                $smscount = $this->countMessage($validated['message']);
-                $initialBalance -= $smscount;
-                if ($initialBalance > 0) {
-                    $dispatchMessage = true;
-                } else {
-                    $dispatchMessage = false;
-                }
-            }
-            // Create message record
-            $message = Message::create([
-                'channel' => $validated['channel'],
-                'recipient' => $validated['to'],
-                'subject' => $validated['subject'] ?? null,
-                'message' => $validated['message'],
-                'status' => $dispatchMessage ? 'pending' : 'no_credit',
-                'priority' => $validated['priority'] ?? 'normal',
-                'scheduled_at' => $validated['scheduled_at'] ?? null,
-                'metadata' => array_merge($validated['metadata'] ?? [], [
-                    'schema_name' => $validated['schema_name'],
-                    'wasender_api_key' => $wasenderApiKey, // Pass WaSender API key in metadata
-                    'sms_sender_name' => $smsSenderName, // Pass SMS sender name in metadata
-                ]),
-                'tags' => $validated['tags'] ?? [],
-                'webhook_url' => $validated['webhook_url'] ?? null,
+            $metadata = array_merge($validated['metadata'] ?? [], [
                 'schema_name' => $validated['schema_name'],
-                'ip_address' => $request->ip(),
-                'user_agent' => $request->userAgent(),
-                'attachment' => $attachmentPath,
-                'attachment_metadata' => $attachmentMetadata,
+                'sms_sender_name' => $smsSenderName, // Pass SMS sender name in metadata
             ]);
 
+            // Check the SMS balance and create the message under a per-school lock, so two
+            // concurrent requests can't both pass the check and overspend.
+            $message = $this->withSmsBalanceLock($validated, function () use ($validated, $metadata, $request, $attachmentPath, $attachmentMetadata) {
+                $dispatchMessage = true;
+                if ($validated['channel'] === 'sms' && $validated['schema_name'] !== 'shulesoft') {
+                    $initialBalance = $this->processBalance($validated['schema_name'])['balance'];
+                    $initialBalance -= $this->countMessage($validated['message']);
+                    $dispatchMessage = $initialBalance >= 0;
+                }
+
+                return Message::create([
+                    'channel' => $validated['channel'],
+                    'recipient' => $validated['to'],
+                    'subject' => $validated['subject'] ?? null,
+                    'message' => $validated['message'],
+                    'status' => $dispatchMessage ? 'pending' : 'no_credit',
+                    'priority' => $validated['priority'] ?? 'normal',
+                    'scheduled_at' => $validated['scheduled_at'] ?? null,
+                    'metadata' => $metadata,
+                    'tags' => $validated['tags'] ?? [],
+                    'webhook_url' => $validated['webhook_url'] ?? null,
+                    'schema_name' => $validated['schema_name'],
+                    'ip_address' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                    'attachment' => $attachmentPath,
+                    'attachment_metadata' => $attachmentMetadata,
+                ]);
+            });
+
+            $jobMessageData = [
+                'type' => $validated['channel'],
+                'channel' => $validated['channel'],
+                'to' => $validated['to'],
+                'subject' => $validated['subject'] ?? null,
+                'message' => $validated['message'],
+                'template_id' => $validated['template_id'] ?? null,
+                'metadata' => $metadata,
+                'provider' => $validated['provider'] ?? null,
+                'sender_name' => $validated['sender_name'] ?? null,
+                'whatsapp_type' => $validated['type'] ?? null, // WhatsApp provider type
+                'webhook_url' => $validated['webhook_url'] ?? null,
+                'attachment' => $attachmentPath,
+                'attachment_metadata' => $attachmentMetadata,
+            ];
+
+            // Scheduled messages go through the queue instead of being sent immediately.
+            if ($message->status === 'pending' && !empty($validated['scheduled_at'])) {
+                DispatchMessage::dispatch($jobMessageData, $message->id, $validated['priority'] ?? 'normal')
+                    ->delay(Carbon::parse($validated['scheduled_at']));
+
+                return $this->queuedResponse($message);
+            }
+
             // Send the notification using unified service method
-            if ($dispatchMessage) {
-                $result = $this->notificationService->send([
+            if ($message->status === 'pending') {
+                $sendData = [
                     'channel' => $validated['channel'],
                     'to' => $validated['to'],
                     'subject' => $validated['subject'] ?? null,
                     'message' => $validated['message'],
                     'template_id' => $validated['template_id'] ?? null,
                     'priority' => $validated['priority'] ?? 'normal',
-                    'metadata' => array_merge($validated['metadata'] ?? [], [
-                        'schema_name' => $validated['schema_name'],
-                        'wasender_api_key' => $wasenderApiKey, // Pass WaSender API key in metadata
-                        'sms_sender_name' => $smsSenderName, // Pass SMS sender name in metadata
-                    ]),
+                    'metadata' => $metadata,
                     'provider' => $validated['provider'] ?? null,
                     'sender_name' => $validated['sender_name'] ?? null,
                     'type' => $validated['type'] ?? null, // WhatsApp provider type
                     'webhook_url' => $validated['webhook_url'] ?? null,
                     'attachment' => $attachmentPath,
                     'attachment_metadata' => $attachmentMetadata,
-                ]);
+                ];
+
+                // Real-time sends share the provider rate limit with queued sends. When the
+                // provider is at its limit, hand the message to the urgent queue instead.
+                $provider = $this->notificationService->resolveProvider($sendData);
+                $slot = $this->throttle->attempt($provider, $validated['channel']);
+
+                if (!$slot['allowed']) {
+                    $message->update(['status' => 'queued']);
+                    DispatchMessage::dispatch($jobMessageData, $message->id, 'urgent')
+                        ->delay(now()->addSeconds($this->throttle->releaseDelay($slot['retry_after'])));
+
+                    return $this->queuedResponse($message);
+                }
+
+                $result = $this->notificationService->send($sendData + ['resolved_provider' => $provider]);
 
                 // Update message with result
                 $message->update([
-                    'status' => $result['status'] ?? 'failed',
-                    'provider' => $result['provider'] ?? null,
-                    'external_id' => $result['message_id'] ?? null,
-                    'sent_at' => ($result['status'] ?? 'failed') === 'sent' ? now() : null,
-                    'failed_at' => ($result['status'] ?? 'failed') === 'failed' ? now() : null,
-                    'error_message' => $result['error'] ?? null,
+                    'status' => $result['status'],
+                    'provider' => $result['provider'],
+                    'external_id' => $result['message_id'],
+                    'sent_at' => $result['status'] === 'sent' ? now() : null,
+                    'failed_at' => $result['status'] === 'failed' ? now() : null,
+                    'error_message' => $result['error'],
                 ]);
             }
 
@@ -308,6 +417,7 @@ class NotificationController extends Controller
      */
     public function resend(Request $request): JsonResponse
     {
+        $balanceLock = null;
         DB::beginTransaction();
 
         try {
@@ -344,6 +454,10 @@ class NotificationController extends Controller
             $initialBalance = 0;
 
             if ($channel === 'sms' && $schemaName != 'shulesoft') {
+                // Held until commit so concurrent requests for the same school can't overspend.
+                $balanceLock = Cache::lock('sms-balance:' . $schemaName, 120);
+                $balanceLock->block(15);
+
                 $smsBalance = $this->processBalance($schemaName);
                 $initialBalance = $smsBalance['balance'];
 
@@ -359,33 +473,54 @@ class NotificationController extends Controller
             $scheduledAt = isset($request->scheduled_at) ? Carbon::parse($request->scheduled_at) : now();
             $rateLimit = $request->rate_limit ?? null;
 
+            $firstMessage = $messages->first();
+            $pacingProvider = $this->pacingProvider([
+                'channel' => $channel,
+                'to' => $firstMessage->recipient,
+                'message' => $firstMessage->message,
+                'provider' => $firstMessage->metadata['provider'] ?? null,
+                'type' => $firstMessage->metadata['type'] ?? null,
+                'metadata' => ['schema_name' => $schemaName],
+            ]);
+
             // Process each message
+            $totalBlocked = 0;
+
             foreach ($messages as $index => $message) {
                 $shouldDispatch = $dispatchMessage;
+                $blockedReason = null;
+
+                // Never resend to an email address that fails the outbound
+                // filter, even if the original send predates the filter.
+                if ($message->channel === 'email') {
+                    $emailCheck = $this->emailFilter->check($message->recipient);
+
+                    if (!$emailCheck['allowed']) {
+                        $shouldDispatch = false;
+                        $blockedReason = $emailCheck['reason'];
+                    }
+                }
 
                 // For SMS, check balance for each message
-                if ($channel === 'sms' && $dispatchMessage) {
+                if ($channel === 'sms' && $shouldDispatch) {
                     $smscount = $this->countMessage($message->message);
                     $initialBalance -= $smscount;
 
-                    if ($initialBalance <= 0) {
+                    if ($initialBalance < 0) {
                         $shouldDispatch = false;
                     }
                 }
 
                 // Reset message status
                 $message->update([
-                    'status' => $shouldDispatch ? 'pending' : 'no_credit',
+                    'status' => $shouldDispatch ? 'pending' : ($blockedReason ? 'blocked' : 'no_credit'),
                     'sent_at' => null,
                     'failed_at' => null,
-                    'error_message' => null,
+                    'error_message' => $blockedReason,
                 ]);
 
                 if ($shouldDispatch) {
-                    $delay = 0;
-                    if ($rateLimit && $index > 0) {
-                        $delay = ($index / $rateLimit) * 60; // Convert to seconds
-                    }
+                    $delay = $this->dispatchDelay($index, $rateLimit, $pacingProvider, $channel);
                     // Prepare job message data
                     $jobMessageData = [
                         'type' => $message->channel,
@@ -393,7 +528,8 @@ class NotificationController extends Controller
                         'to' => $message->recipient,
                         'subject' => $message->subject,
                         'message' => $message->message,
-                        'metadata' => $message->metadata ?? [],
+                        // Old messages still carry the WaSender key; don't copy it into the job payload.
+                        'metadata' => Arr::except($message->metadata ?? [], ['wasender_api_key']),
                         'provider' => $message->metadata['provider'] ?? null,
                         'sender_name' => $message->metadata['sender_name'] ?? null,
                         'whatsapp_type' => $message->metadata['type'] ?? null,
@@ -413,18 +549,24 @@ class NotificationController extends Controller
                 } else {
                     $totalSkipped++;
 
-                    Log::info('Message resend skipped - no credit', [
+                    if ($blockedReason) {
+                        $totalBlocked++;
+                    }
+
+                    Log::info($blockedReason ? 'Message resend skipped - blocked recipient' : 'Message resend skipped - no credit', [
                         'message_id' => $message->id,
                         'schema_name' => $schemaName,
-                        'channel' => $channel
+                        'channel' => $message->channel,
+                        'reason' => $blockedReason
                     ]);
                 }
 
                 $resendResults[] = [
                     'message_id' => $message->id,
-                    'status' => $shouldDispatch ? 'queued' : 'skipped_no_credit',
+                    'status' => $shouldDispatch ? 'queued' : ($blockedReason ? 'skipped_blocked_recipient' : 'skipped_no_credit'),
                     'channel' => $message->channel,
-                    'recipient' => $message->recipient
+                    'recipient' => $message->recipient,
+                    'reason' => $blockedReason,
                 ];
             }
 
@@ -434,16 +576,22 @@ class NotificationController extends Controller
                 'total_messages' => count($messageIds),
                 'resent' => $totalResent,
                 'skipped' => $totalSkipped,
+                'blocked_recipients' => $totalBlocked,
                 'schema_name' => $schemaName,
                 'channel' => $channel
             ]);
 
             return response()->json([
                 'success' => true,
-                'message' => $totalSkipped > 0 ? 'Some messages were skipped due to insufficient credit.' : 'All messages have been resent successfully.',
+                'message' => $totalSkipped > 0
+                    ? ($totalBlocked > 0
+                        ? 'Some messages were skipped - invalid or blocked recipients, or insufficient credit.'
+                        : 'Some messages were skipped due to insufficient credit.')
+                    : 'All messages have been resent successfully.',
                 'total_messages' => count($messageIds),
                 'resent_count' => $totalResent,
                 'skipped_count' => $totalSkipped,
+                'blocked_count' => $totalBlocked,
                 'results' => $resendResults
             ], 200);
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -468,6 +616,8 @@ class NotificationController extends Controller
                 'error' => 'Failed to resend messages',
                 'message' => $e->getMessage()
             ], 500);
+        } finally {
+            $balanceLock?->release();
         }
     }
 
@@ -548,11 +698,12 @@ class NotificationController extends Controller
      */
     public function sendBulk(SendBulkMessageRequest $request): JsonResponse
     {
+        $balanceLock = null;
         DB::beginTransaction();
 
         try {
             $validated = $request->validated();
-
+            $validated = $this->applyWhatsAppDefaults($validated);
             // Handle base64 encoded attachment (shared across all messages)
             $attachmentPath = null;
             $attachmentMetadata = null;
@@ -636,10 +787,25 @@ class NotificationController extends Controller
             $scheduledAt = isset($validated['scheduled_at']) ? Carbon::parse($validated['scheduled_at']) : now();
             $rateLimit = $validated['rate_limit'] ?? null;
             $priority = $validated['priority'] ?? 'normal';
+            $initialBalance = 0;
+
+            // Spread the batch over the provider's rate limit instead of queueing it all at once.
+            $pacingProvider = $this->pacingProvider([
+                'channel' => $validated['channel'],
+                'to' => $validated['messages'][0]['to'],
+                'message' => $validated['messages'][0]['message'],
+                'provider' => $validated['provider'] ?? null,
+                'type' => $validated['type'] ?? null,
+                'metadata' => ['schema_name' => $validated['schema_name']],
+            ]);
 
             // check sms balance before dispatching the queue if channel is sms (quick sms);
+            // held until commit so concurrent requests for the same school can't overspend.
             $dispatchMessage = true;
             if ($validated['channel'] === 'sms' && $validated['schema_name'] !== 'shulesoft') {
+                $balanceLock = Cache::lock('sms-balance:' . $validated['schema_name'], 120);
+                $balanceLock->block(15);
+
                 $smsBalance = $this->processBalance($validated['schema_name']);
                 $initialBalance = $smsBalance['balance'];
                 if ($initialBalance <= 0) { // 20
@@ -649,23 +815,40 @@ class NotificationController extends Controller
 
             // Create message records for each recipient
             $smscount = 0;
+            $blockedRecipients = [];
             foreach ($validated['messages'] as $index => $messageData) {
                 if ($validated['channel'] === 'sms' && $validated['schema_name'] !== 'shulesoft') {
                     $smscount = $this->countMessage($messageData['message']); // 3
                     $initialBalance -= $smscount;
-                    if ($initialBalance > 0) {
-                        $dispatchMessage = true;
-                    } else {
-                        $dispatchMessage = false;
+                    $dispatchMessage = $initialBalance >= 0;
+                }
+
+                // Skip email recipients that fail the outbound filter (invalid
+                // format, blocked domain such as shulesoft.com, or a blocked
+                // extension). They are recorded but never queued.
+                $emailCheck = null;
+                if ($validated['channel'] === 'email') {
+                    $emailCheck = $this->emailFilter->check($messageData['to']);
+
+                    if (!$emailCheck['allowed']) {
+                        $blockedRecipients[] = [
+                            'index' => $index,
+                            'recipient' => $emailCheck['email'],
+                            'code' => $emailCheck['code'],
+                            'reason' => $emailCheck['reason'],
+                        ];
                     }
                 }
+                $recipientBlocked = $emailCheck !== null && !$emailCheck['allowed'];
+
                 // Create message record (similar to send() method)
                 $message = Message::create([
                     'channel' => $validated['channel'],
                     'recipient' => $messageData['to'],
                     'subject' => $messageData['subject'] ?? null,
                     'message' => $messageData['message'],
-                    'status' => $dispatchMessage ? 'pending' : 'no_credit',
+                    'status' => $recipientBlocked ? 'blocked' : ($dispatchMessage ? 'pending' : 'no_credit'),
+                    'error_message' => $recipientBlocked ? $emailCheck['reason'] : null,
                     'priority' => $priority,
                     'scheduled_at' => $scheduledAt,
                     'metadata' => array_merge(
@@ -673,7 +856,6 @@ class NotificationController extends Controller
                         $validated['metadata'] ?? [],
                         [
                             'schema_name' => $validated['schema_name'],
-                            'wasender_api_key' => $wasenderApiKey, // Pass WaSender API key in metadata
                             'sms_sender_name' => $smsSenderName, // Pass SMS sender name in metadata
                         ]
                     ),
@@ -685,12 +867,9 @@ class NotificationController extends Controller
                     'attachment' => $attachmentPath,
                     'attachment_metadata' => $attachmentMetadata,
                 ]);
-                if ($dispatchMessage) {
+                if ($dispatchMessage && !$recipientBlocked) {
                     // Calculate delay for rate limiting
-                    $delay = 0;
-                    if ($rateLimit && $index > 0) {
-                        $delay = ($index / $rateLimit) * 60; // Convert to seconds
-                    }
+                    $delay = $this->dispatchDelay($index, $rateLimit, $pacingProvider, $validated['channel']);
 
                     // Prepare message data for the job (similar to send() method)
                     $jobMessageData = [
@@ -704,7 +883,6 @@ class NotificationController extends Controller
                             $validated['metadata'] ?? [],
                             [
                                 'schema_name' => $validated['schema_name'],
-                                'wasender_api_key' => $wasenderApiKey, // Pass WaSender API key in metadata
                                 'sms_sender_name' => $smsSenderName, // Pass SMS sender name in metadata
                             ]
                         ),
@@ -730,21 +908,31 @@ class NotificationController extends Controller
 
             DB::commit();
 
+            $queuedCount = count($createdMessages) - count($blockedRecipients);
+
             Log::info('Bulk messages created and queued', [
                 'channel' => $validated['channel'],
                 'total_count' => count($createdMessages),
+                'queued_count' => $queuedCount,
+                'skipped_count' => count($blockedRecipients),
                 'priority' => $priority,
             ]);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Bulk messages queued successfully',
+                'message' => empty($blockedRecipients)
+                    ? 'Bulk messages queued successfully'
+                    : 'Bulk messages queued successfully. Some recipients were skipped as invalid or blocked.',
                 'total_count' => count($createdMessages),
+                'queued_count' => $queuedCount,
+                'skipped_count' => count($blockedRecipients),
                 'status' => 'pending',
                 'scheduled_at' => $scheduledAt,
                 'data' => [
                     'channel' => $validated['channel'],
                     'total_count' => count($createdMessages),
+                    'queued_count' => $queuedCount,
+                    'skipped_recipients' => $blockedRecipients,
                     'priority' => $priority,
                     'scheduled_at' => $scheduledAt,
                     'message_ids' => array_map(fn($msg) => $msg->id, $createdMessages),
@@ -763,6 +951,8 @@ class NotificationController extends Controller
                 'error' => 'Failed to queue bulk messages',
                 'message' => $e->getMessage()
             ], 500);
+        } finally {
+            $balanceLock?->release();
         }
     }
 
@@ -819,12 +1009,7 @@ class NotificationController extends Controller
     protected function getWasenderApiKey(string $schemaName): ?string
     {
         try {
-            $session = WaSenderSession::where('schema_name', $schemaName)
-                ->where('status', 'connected')
-                ->whereNotNull('api_key')
-                ->first();
-
-            return $session?->api_key;
+            return WaSenderSession::apiKeyForSchema($schemaName);
         } catch (\Exception $e) {
             Log::error('Failed to fetch WaSender API key', [
                 'schema_name' => $schemaName,
@@ -920,7 +1105,7 @@ class NotificationController extends Controller
             ], 500);
         }
     }
-    public function processBalance($schemaName)
+    public function processBalance(string $schemaName): array
     {
         $result = [
             'total_sms' => 0,
@@ -929,9 +1114,17 @@ class NotificationController extends Controller
         ];
 
         try {
+            // In-flight 'pending' messages count too (credit already committed; ignoring them let
+            // concurrent bulk requests overspend). Pending rows whose due time is older than the
+            // queue retry window will never be sent, so they are not counted.
+            $staleBefore = now()->subMinutes((int) config('throttling.retry_window_minutes', 360));
             $sentMessages  = Message::where('schema_name', $schemaName)
                 ->where('channel', 'sms')
-                ->whereNotIn('status', ['pending', 'no_credit'])
+                ->where('status', '!=', 'no_credit')
+                ->where(function ($query) use ($staleBefore) {
+                    $query->where('status', '!=', 'pending')
+                        ->orWhereRaw('COALESCE(scheduled_at, created_at) >= ?', [$staleBefore]);
+                })
                 ->select('message')
                 ->get();
             $totalSent = 0;
@@ -989,7 +1182,8 @@ class NotificationController extends Controller
 
         return 0;
     }
-    public function handleResetPassword($request){
+    public function handleResetPassword($request)
+    {
         Log::info('handle reset password', $request);
         return true;
     }

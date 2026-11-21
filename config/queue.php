@@ -63,13 +63,17 @@ return [
             'after_commit' => false,
         ],
 
+        // retry_after MUST be larger than the longest job $timeout (DispatchMessage = 120s),
+        // otherwise a still-running job is handed to a second worker and sent twice.
+        // after_commit keeps jobs dispatched inside DB transactions from running before the
+        // Message row they reference is committed.
         'redis' => [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
-            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
-            'block_for' => null,
-            'after_commit' => false,
+            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 200),
+            'block_for' => (int) env('REDIS_QUEUE_BLOCK_FOR', 5),
+            'after_commit' => (bool) env('REDIS_QUEUE_AFTER_COMMIT', true),
         ],
 
     ],

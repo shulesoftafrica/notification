@@ -25,6 +25,9 @@ use App\Http\Controllers\WaSenderSessionController;
 Route::get('/health', [HealthController::class, 'check']);
 Route::get('/up', [HealthController::class, 'check']);
 
+// Unified channel health check
+Route::get('/health-check', [HealthController::class, 'checkByChannel']);
+
 // Admin Authentication API
 Route::prefix('admin/auth')->group(function () {
     Route::post('/login', [AdminAuthController::class, 'login']);
@@ -51,8 +54,9 @@ Route::middleware(['admin.auth'])->prefix('admin')->group(function () {
     });
 });
 
-// Notification API with Redis throttling (2 requests per second)
-Route::middleware(['redis.throttle:2,1'])->group(function () {
+// Notification API with Redis throttling (2 requests per second per school).
+// api.auth runs first so unauthenticated calls don't consume a school's budget.
+Route::middleware(['api.auth', 'redis.throttle:2,1'])->group(function () {
     Route::post('/notifications/send', [NotificationController::class, 'send']);
     Route::post('/notifications/bulk/send', [NotificationController::class, 'sendBulk']);
     Route::post('/notifications/resend', [NotificationController::class, 'resend']);
@@ -141,12 +145,12 @@ Route::middleware(['api.auth'])->prefix('wasender')->group(function () {
 
     Route::post('/sessions/create', [WaSenderSessionController::class, 'createSession']);
     Route::get('/sessions', [WaSenderSessionController::class, 'getSessions']);
-    Route::get('/sessions/{id}', [WaSenderSessionController::class, 'getSession']);
-    Route::post('/sessions/{id}/connect', [WaSenderSessionController::class, 'connectSession']);
-    Route::get('/sessions/{id}/status', [WaSenderSessionController::class, 'checkStatus']);
-    Route::put('/sessions/{id}', [WaSenderSessionController::class, 'updateSession']);
-    Route::get('/sessions/{id}/qrcode', [WaSenderSessionController::class, 'getQRCode']);
-    Route::delete('/sessions/{id}', [WaSenderSessionController::class, 'deleteSession']);
+    Route::get('/sessions/{id}', [WaSenderSessionController::class, 'getSession'])->whereNumber('id');
+    Route::post('/sessions/{id}/connect', [WaSenderSessionController::class, 'connectSession'])->whereNumber('id');
+    Route::get('/sessions/{id}/status', [WaSenderSessionController::class, 'checkStatus'])->whereNumber('id');
+    Route::put('/sessions/{id}', [WaSenderSessionController::class, 'updateSession'])->whereNumber('id');
+    Route::get('/sessions/{id}/qrcode', [WaSenderSessionController::class, 'getQRCode'])->whereNumber('id');
+    Route::delete('/sessions/{id}', [WaSenderSessionController::class, 'deleteSession'])->whereNumber('id');
 });
 
 // SMS session management API

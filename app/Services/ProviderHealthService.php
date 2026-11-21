@@ -39,9 +39,26 @@ class ProviderHealthService
     {
         $cacheKey = $this->cachePrefix . $providerName;
 
-        return Cache::remember($cacheKey, $this->cacheTtl, function () use ($providerName) {
-            return $this->performHealthCheck($providerName);
+        $cached = Cache::get($cacheKey);
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        // Only one worker runs the (HTTP, up to 10s) check when the cache expires;
+        // the others don't block sends waiting on it and assume the provider is up.
+        $result = Cache::lock($cacheKey . ':refresh', 30)->get(function () use ($cacheKey, $providerName) {
+            $health = $this->performHealthCheck($providerName);
+            Cache::put($cacheKey, $health, $this->cacheTtl);
+
+            return $health;
         });
+
+        return $result ?: [
+            'healthy' => true,
+            'status' => 'check_in_progress',
+            'response_time' => 1000,
+            'checked_at' => now()->toISOString(),
+        ];
     }
 
     /**
@@ -226,7 +243,16 @@ class ProviderHealthService
      */
     protected function checkGenericHttp($config)
     {
-        $healthUrl = $config['health_url'] ?? $config['base_url'] . '/health';
+        $healthUrl = $config['health_url'] ?? (isset($config['base_url']) ? $config['base_url'] . '/health' : null);
+
+        // Providers without a health endpoint (beem, termii, wasender) can't be probed;
+        // treat them as healthy instead of permanently "down", which re-routed their traffic.
+        if (!$healthUrl) {
+            return [
+                'healthy' => true,
+                'status' => 'not_checked',
+            ];
+        }
 
         $response = Http::timeout(10)->get($healthUrl);
 

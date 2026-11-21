@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use App\Http\Middleware\RedisThrottleMiddleware;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Log;
 
@@ -18,16 +19,12 @@ class ThrottlingController extends Controller
             $redis = Redis::connection(config('throttling.redis_connection', 'default'));
             
             // Get throttling key for current request
-            $key = $this->resolveRequestSignature($request, '/notifications/send');
-            $bulkKey = $this->resolveRequestSignature($request, '/notifications/bulk/send');
-            
-            // Get current counts
-            $sendCount = (int) $redis->get($key) ?: 0;
-            $bulkCount = (int) $redis->get($bulkKey) ?: 0;
-            
-            // Get TTLs
-            $sendTtl = $redis->ttl($key);
-            $bulkTtl = $redis->ttl($bulkKey);
+            $key = RedisThrottleMiddleware::keyFor($request, 'api/notifications/send');
+            $bulkKey = RedisThrottleMiddleware::keyFor($request, 'api/notifications/bulk/send');
+
+            // Limiter state is a hash {start, end, count} (see RedisThrottleMiddleware)
+            [$sendCount, $sendTtl] = $this->windowState($redis, $key);
+            [$bulkCount, $bulkTtl] = $this->windowState($redis, $bulkKey);
             
             $config = config('throttling.notifications');
             
@@ -77,8 +74,8 @@ class ThrottlingController extends Controller
             
             // Get all possible throttling keys for current request
             $keys = [
-                $this->resolveRequestSignature($request, '/notifications/send'),
-                $this->resolveRequestSignature($request, '/notifications/bulk/send')
+                RedisThrottleMiddleware::keyFor($request, 'api/notifications/send'),
+                RedisThrottleMiddleware::keyFor($request, 'api/notifications/bulk/send')
             ];
             
             $cleared = 0;
@@ -115,31 +112,26 @@ class ThrottlingController extends Controller
     }
     
     /**
-     * Resolve request signature for throttling key
+     * Current [count, seconds until reset] of a limiter window.
      */
-    protected function resolveRequestSignature(Request $request, string $endpoint): string
+    protected function windowState($redis, string $key): array
     {
-        $prefix = config('throttling.key_prefix', 'throttle');
-        
-        $apiKey = $request->attributes->get('api_key') ?? $request->header('Authorization');
-        
-        if ($apiKey) {
-            $identifier = 'api_key:' . md5($apiKey);
-        } else {
-            $identifier = 'ip:' . $request->ip();
+        $state = $redis->hgetall($key);
+        $end = (int) ($state['end'] ?? 0);
+
+        if (!$state || $end < time()) {
+            return [0, 0];
         }
-        
-        $endpointKey = str_replace('/', ':', trim($endpoint, '/'));
-        
-        return "{$prefix}:{$endpointKey}:{$identifier}";
+
+        return [(int) ($state['count'] ?? 0), $end - time()];
     }
-    
+
     /**
      * Get identifier type for current request
      */
     protected function getIdentifierType(Request $request): string
     {
-        $apiKey = $request->attributes->get('api_key') ?? $request->header('Authorization');
+        $apiKey = $request->attributes->get('api_token') ?? $request->header('Authorization');
         return $apiKey ? 'api_key' : 'ip_address';
     }
 }
