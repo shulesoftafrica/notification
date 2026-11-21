@@ -20,6 +20,15 @@ class SendMessageRequest extends FormRequest
     }
 
     /**
+     * Email bodies are HTML and routinely exceed 4096 characters; the channel config advertises 100KB for email.
+     * SMS and WhatsApp keep the 4096 limit.
+     */
+    public static function maxMessageLength(?string $channel): int
+    {
+        return $channel === 'email' ? 100000 : 4096;
+    }
+
+    /**
      * Get the validation rules that apply to the request.
      *
      * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
@@ -30,7 +39,7 @@ class SendMessageRequest extends FormRequest
             'schema_name' => ['required', 'string', 'max:255'],
             'channel' => ['required', 'string', Rule::in(['sms', 'email', 'whatsapp'])],
             'to' => ['required', 'string', 'max:255'],
-            'message' => ['required', 'string', 'max:4096'],
+            'message' => ['required', 'string', 'max:' . self::maxMessageLength($this->input('channel'))],
             'subject' => ['required_if:channel,email', 'string', 'max:255'],
             'priority' => ['sometimes', 'string', Rule::in(['low', 'normal', 'high', 'urgent'])],
             'scheduled_at' => ['sometimes', 'date', 'after:now'],
@@ -67,7 +76,7 @@ class SendMessageRequest extends FormRequest
             'to.required' => 'Recipient is required',
             'to.max' => 'Recipient must not exceed 255 characters',
             'message.required' => 'Message content is required',
-            'message.max' => 'Message content must not exceed 4096 characters',
+            'message.max' => 'Message content is too long for this channel (SMS/WhatsApp: 4096 characters, email: 100000)',
             'subject.required_if' => 'Subject is required for email messages',
             'subject.max' => 'Subject must not exceed 255 characters',
             'priority.in' => 'Priority must be one of: low, normal, high, urgent',
