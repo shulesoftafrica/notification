@@ -323,11 +323,7 @@ class WhatsAppAdapter implements ProviderAdapterInterface
             // Remove text if media is present
             unset($payload['text']);
         }
-        $response = Http::withHeaders([
-            'Authorization' => 'Bearer ' . $apiKey,
-            'Content-Type' => 'application/json'
-        ])
-        ->post("{$apiUrl}/api/send-message", $payload);
+        $response = $this->postWasenderPaced($apiUrl, $apiKey, $payload);
 
         $responseTime = $this->getResponseTime($startTime);
 
@@ -350,16 +346,60 @@ class WhatsAppAdapter implements ProviderAdapterInterface
         }
 
         $error = $response->json()['error'] ?? $response->json()['message'] ?? 'Unknown Wasender error';
-
-        Log::warning('WaSender rejected the message', [
-            'http_status' => $response->status(),
-            'error' => $error,
-            'to' => $phoneNumber,
-        ]);
-
         return ProviderResponse::failure('wasender', $error, ['status_code' => $response->status()], $responseTime);
     }
 
+    /**
+     * WaSender's "account protection" lets a session send one message every 5 seconds and rejects the rest.
+     * Send one message at a time per session key, keep at least 5.3 s between sends, and retry when WaSender
+     * still answers with the rate-limit error, so a burst of replies is delivered slowly instead of dropped.
+     */
+    protected function postWasenderPaced(string $apiUrl, string $apiKey, array $payload)
+    {
+        $lockKey = 'wasender_send_' . md5($apiKey);
+        $lastKey = $lockKey . '_last';
+        $lock = \Illuminate\Support\Facades\Cache::lock($lockKey, 60);
+        $haveLock = false;
+        try {
+            $haveLock = $lock->block(40);
+        } catch (\Throwable $e) {
+            Log::warning('WaSender send lock not acquired, sending without queueing', ['error' => $e->getMessage()]);
+        }
+
+        try {
+            $response = null;
+            for ($attempt = 1; $attempt <= 4; $attempt++) {
+                $wait = 5.3 - (microtime(true) - (float) \Illuminate\Support\Facades\Cache::get($lastKey, 0));
+                if ($wait > 0 && $wait <= 5.3) {
+                    usleep((int) ($wait * 1000000));
+                }
+
+                $response = Http::withHeaders([
+                    'Authorization' => 'Bearer ' . $apiKey,
+                    'Content-Type' => 'application/json'
+                ])
+                ->post("{$apiUrl}/api/send-message", $payload);
+
+                \Illuminate\Support\Facades\Cache::put($lastKey, microtime(true), 120);
+
+                $body = strtolower((string) $response->body());
+                $rateLimited = $response->status() === 429
+                    || str_contains($body, 'account protection')
+                    || str_contains($body, 'message every');
+                if (!$rateLimited) {
+                    break;
+                }
+
+                Log::warning('WaSender rate limit hit, retrying', ['attempt' => $attempt, 'status' => $response->status()]);
+            }
+
+            return $response;
+        } finally {
+            if ($haveLock) {
+                $lock->release();
+            }
+        }
+    }
     /**
      * Get provider name
      */

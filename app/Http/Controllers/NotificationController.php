@@ -1110,7 +1110,8 @@ class NotificationController extends Controller
         $result = [
             'total_sms' => 0,
             'total_sms_sent' => 0,
-            'balance' => 0
+            'balance' => 0,
+            'stalebore' => 0
         ];
 
         try {
@@ -1121,10 +1122,10 @@ class NotificationController extends Controller
             $sentMessages  = Message::where('schema_name', $schemaName)
                 ->where('channel', 'sms')
                 ->where('status', '!=', 'no_credit')
-                ->where(function ($query) use ($staleBefore) {
-                    $query->where('status', '!=', 'pending')
-                        ->orWhereRaw('COALESCE(scheduled_at, created_at) >= ?', [$staleBefore]);
-                })
+                // ->where(function ($query) use ($staleBefore) {
+                //     $query->where('status', '!=', 'pending')
+                //         ->orWhereRaw('COALESCE(scheduled_at, created_at) >= ?', [$staleBefore]);
+                // })
                 ->select('message')
                 ->get();
             $totalSent = 0;
@@ -1140,7 +1141,8 @@ class NotificationController extends Controller
             $result = [
                 'total_sms' => $smsCount['total_sms'],
                 'total_sms_sent' => $total_sms_sent,
-                'balance' => $balance
+                'balance' => $balance,
+                'stalebore' => $staleBefore->toDateTimeString()
             ];
         } catch (\Exception $e) {
             Log::error('Failed to process SMS balance', [
