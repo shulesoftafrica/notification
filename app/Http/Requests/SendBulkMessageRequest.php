@@ -125,6 +125,10 @@ class SendBulkMessageRequest extends FormRequest
      */
     protected function prepareForValidation(): void
     {
+        if (is_string($attachmentType = $this->input('attachment_type')) && strtolower(trim($attachmentType)) === 'pdf') {
+            $this->merge(['attachment_type' => 'application/pdf']);
+        }
+
         // Set default priority
         if (!$this->has('priority')) {
             $this->merge(['priority' => 'normal']);
@@ -252,6 +256,11 @@ class SendBulkMessageRequest extends FormRequest
                         'audio/mpeg', 'audio/ogg', 'audio/wav'
                     ];
                     if (!in_array($this->attachment_type, $allowedMimes)) {
+                         Log::info('Invalid attachment type for WhatsApp', [
+                            'attachment_type' => $this->attachment_type,
+                            'allowed_types' => $allowedMimes,
+                            'schema_name' => $this->input('schema_name'),
+                        ]);
                         $validator->errors()->add('attachment_type', 'WhatsApp only supports images, PDF, videos, and audio files');
                     }
                 }
